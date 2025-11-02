@@ -1,0 +1,10 @@
+opencv-python-headless
+Pillow
+mediapipe
+face_recognition
+dlib
+numpy
+easyocr
+torch
+torchvision
+zeroconf
