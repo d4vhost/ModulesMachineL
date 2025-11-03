@@ -48,8 +48,15 @@ class FaceRecognitionApp(tk.Tk):
         self.last_face_landmarks_list = []
         
         # --- Ruta de datos ---
-        self.RutaRostros = "rostros_registrados"
+        # ==================================================================
+        # MODIFICACIÓN CLAVE: Usar rutas absolutas basadas en la ubicación del script
+        # Obtenemos la ruta absoluta de la carpeta donde está app.py
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+        # Creamos la ruta a nuestra carpeta de datos
+        self.RutaRostros = os.path.join(BASE_DIR, "data", "rostros_registrados")
+        
         os.makedirs(self.RutaRostros, exist_ok=True)
+        # ==================================================================
         
         # --- Estilos TTK (Minimalista Apple) ---
         self.style = ttk.Style(self)

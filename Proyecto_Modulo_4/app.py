@@ -23,7 +23,14 @@ FONT_BIG_STATUS = ("SF Pro Display", 22, "bold")
 FONT_SMALL = ("SF Pro Text", 9)
 
 # --- Configuración del Módulo 4 ---
-IMAGE_FOLDER = "images/Modulo_4"
+# ==================================================================
+# MODIFICACIÓN CLAVE: Usar rutas absolutas basadas en la ubicación del script
+# Obtenemos la ruta absoluta de la carpeta donde está app.py
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# Creamos la ruta a nuestra carpeta de datos
+IMAGE_FOLDER = os.path.join(BASE_DIR, "data", "reference_images")
+# ==================================================================
+
 SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 DEFAULT_IMAGE_KEY = "NINGUNO"
 

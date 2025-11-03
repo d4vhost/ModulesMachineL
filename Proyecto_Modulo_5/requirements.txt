@@ -1,0 +1,9 @@
+# Librerías principales
+opencv-python
+Pillow
+numpy
+easyocr
+
+# Dependencias de EasyOCR
+torch
+torchvision

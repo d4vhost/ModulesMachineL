@@ -8,15 +8,33 @@ from sklearn.pipeline import Pipeline
 import joblib
 import string
 import re
+import os # Importar 'os' para manejar rutas
 
 print("Iniciando el proceso de entrenamiento...")
 
+# ==================================================================
+# MODIFICACIÓN CLAVE: Usar rutas absolutas
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+DATA_DIR = os.path.join(BASE_DIR, "data", "raw")
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+
+# Crear la carpeta 'models' si no existe
+os.makedirs(MODEL_DIR, exist_ok=True)
+
+# Rutas a los archivos
+data_path = os.path.join(DATA_DIR, "netflix_titles.csv")
+model_path = os.path.join(MODEL_DIR, "modelo_generos.joblib")
+mlb_path = os.path.join(MODEL_DIR, "binarizer_generos.joblib")
+# ==================================================================
+
+
 # --- 1. Carga y Preparación de Datos ---
 try:
-    df = pd.read_csv("netflix_titles.csv")
+    # Usar la nueva ruta de datos
+    df = pd.read_csv(data_path)
 except FileNotFoundError:
-    print("Error: No se encontró 'netflix_titles.csv'.")
-    print("Por favor, descárgalo de Kaggle y colócalo en esta carpeta.")
+    print(f"Error: No se encontró '{data_path}'.")
+    print("Por favor, asegúrate de colocar 'netflix_titles.csv' en la carpeta 'data/raw/'.")
     exit()
 
 # Nos quedamos solo con películas (por simplicidad) y limpiamos nulos
@@ -79,9 +97,8 @@ score = pipeline.score(X_test, y_test)
 print(f"Precisión (Accuracy) en datos de prueba: {score:.4f}")
 
 # --- 8. Guardar el Modelo y el Binarizer ---
-# Guardamos el pipeline entrenado
-joblib.dump(pipeline, 'modelo_generos.joblib')
-# Guardamos el binarizer (es crucial para decodificar las predicciones)
-joblib.dump(mlb, 'binarizer_generos.joblib')
+# Guardamos en la nueva carpeta 'models'
+joblib.dump(pipeline, model_path)
+joblib.dump(mlb, mlb_path)
 
-print("¡Modelo y Binarizer guardados como 'modelo_generos.joblib' y 'binarizer_generos.joblib'!")
+print(f"¡Modelo y Binarizer guardados en la carpeta '{MODEL_DIR}'!")

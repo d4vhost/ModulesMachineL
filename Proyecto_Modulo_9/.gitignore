@@ -1,0 +1,19 @@
+# Entorno virtual
+venv/
+*.venv/
+
+# Archivos de cache de Python
+__pycache__/
+*.pyc
+
+# Archivos de configuración de IDE
+.vscode/
+.idea/
+
+# Archivos de sistema operativo
+.DS_Store
+Thumbs.db
+
+# --- Específicos del Proyecto ---
+# Ignorar la carpeta de datos
+data/
