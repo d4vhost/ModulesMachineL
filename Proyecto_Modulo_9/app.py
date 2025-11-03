@@ -34,7 +34,9 @@ GALLERY_DIR = os.path.join(BASE_DIR, "data", "gallery_images")
 os.makedirs(GALLERY_DIR, exist_ok=True)
 
 # --- CONFIGURACIÓN DE RED ---
-HOST = '127.0.0.1'
+# Para el EMISOR: Pon aquí la IP del RECEPTOR
+# Para el RECEPTOR: Usa '0.0.0.0' para escuchar en todas las interfaces
+RECEIVER_IP = os.environ.get('RECEIVER_IP', '127.0.0.1')
 PORT = 9999
 
 # --- CONTROLADOR DE GESTOS ---
@@ -161,14 +163,16 @@ class TransferServer:
         self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         try:
-            self.server_socket.bind((HOST, PORT))
+            # Escuchar en todas las interfaces de red (0.0.0.0)
+            self.server_socket.bind(('0.0.0.0', PORT))
             self.server_socket.listen(1)
             self.running = True
             self.thread = threading.Thread(target=self.accept_connections, daemon=True)
             self.thread.start()
-            print(f"✓ Servidor iniciado en {HOST}:{PORT}")
+            print(f"✓ Servidor receptor iniciado en puerto {PORT}")
+            print(f"✓ Escuchando en todas las interfaces de red")
         except Exception as e:
-            print(f"Error iniciando servidor: {e}")
+            print(f"❌ Error iniciando servidor: {e}")
             self.app_queue.put(("error", f"Error de servidor: {e}"))
 
     def accept_connections(self):
@@ -226,7 +230,7 @@ class TransferClient:
     def send_image(image_pil):
         try:
             client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect((HOST, PORT))
+            client_socket.connect((RECEIVER_IP, PORT))
             
             # Serializar imagen
             image_bytes = pickle.dumps(image_pil)
@@ -611,12 +615,33 @@ if __name__ == "__main__":
     print("=" * 50)
     
     if len(sys.argv) > 1 and sys.argv[1] == "receiver":
-        print("\n🔵 Iniciando en modo RECEPTOR...")
+        print("\n🔵 MODO RECEPTOR")
+        print(f"✓ Escuchando en puerto {PORT}")
+        print("✓ Esperando conexiones entrantes...")
+        print("\n💡 En el EMISOR, usa esta IP para conectar:")
+        
+        # Mostrar IPs disponibles
+        import socket as sock
+        hostname = sock.gethostname()
+        local_ip = sock.gethostbyname(hostname)
+        print(f"   IP Local: {local_ip}")
+        print(f"   O configura: export RECEIVER_IP={local_ip}")
+        
         app = HarmonyOSApp(mode="receiver")
     else:
-        print("\n🟠 Iniciando en modo EMISOR...")
-        print("\nPara abrir el receptor, ejecuta:")
-        print("python app.py receiver")
+        print("\n🟠 MODO EMISOR")
+        print(f"✓ Conectará al receptor en: {RECEIVER_IP}:{PORT}")
+        print("\n💡 INSTRUCCIONES:")
+        print("  1. Primero inicia el RECEPTOR en otra máquina:")
+        print("     python app.py receiver")
+        print("\n  2. Configura la IP del RECEPTOR aquí:")
+        print("     • Opción A - Variable de entorno:")
+        print("       Windows: set RECEIVER_IP=192.168.1.XXX")
+        print("       Linux/Mac: export RECEIVER_IP=192.168.1.XXX")
+        print("     • Opción B - Editar el código (línea 33):")
+        print("       RECEIVER_IP = '192.168.1.XXX'")
+        print("\n  3. Ejecuta este emisor: python app.py")
+        
         app = HarmonyOSApp(mode="sender")
     
     app.run()
