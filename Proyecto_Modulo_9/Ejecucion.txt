@@ -1,0 +1,5 @@
+# Terminal 1 - Abrir RECEPTOR
+python app.py receiver
+
+# Terminal 2 - Abrir EMISOR (con cámara)
+python app.py
