@@ -1,7 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog
-from PIL import Image, ImageTk
-import easyocr
+from PIL import Image, ImageTk, ImageEnhance, ImageFilter
 import translators as ts
 from gtts import gTTS
 from playsound import playsound
@@ -9,7 +8,23 @@ import threading
 import os
 import atexit 
 import cv2
-import numpy as np  # <--- ¡IMPORTANTE! AÑADE ESTA LÍNEA
+import numpy as np
+import warnings
+
+# Suprimir advertencias
+warnings.filterwarnings('ignore')
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+
+# Imports para TrOCR (modelo avanzado de manuscritos)
+try:
+    from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+    import torch
+    TROCR_AVAILABLE = True
+    print("✅ TrOCR disponible (modelo avanzado)")
+except ImportError:
+    TROCR_AVAILABLE = False
+    print("⚠️ TrOCR no disponible, usando EasyOCR")
+    import easyocr
 
 # --- 1. CONFIGURACIÓN DE ESTILO ---
 COLOR_BG = "#1e1e1e"
@@ -18,7 +33,6 @@ COLOR_FG = "#ffffff"
 COLOR_ACCENT = "#007aff"
 COLOR_SUCCESS = "#34c759"
 COLOR_ERROR = "#ff3b30"
-COLOR_PLACEHOLDER = "#888888"
 
 FONT_TITLE = ("SF Pro Display", 20, "bold")
 FONT_BODY = ("SF Pro Text", 12)
@@ -37,14 +51,14 @@ SUPPORTED_LANGUAGES = {
     "Ruso": "ru"
 }
 
-# --- 3. CLASE PRINCIPAL DE LA APLICACIÓN ---
+# --- 3. CLASE PRINCIPAL ---
 
 class OCRTranslatorApp(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("Módulo 2: OCR, Traducción y Voz")
-        self.geometry("900x700")
+        self.title("Módulo 2: OCR Manuscrito Avanzado")
+        self.geometry("950x700")
         self.configure(bg=COLOR_BG)
         self.resizable(False, False)
         
@@ -52,12 +66,31 @@ class OCRTranslatorApp(tk.Tk):
         self.original_text = ""
         self.temp_audio_file = "temp_audio.mp3"
         
-        print("Cargando EasyOCR... (Puede tardar la primera vez)")
-        # --- MEJORA --- Asegúrate de incluir 'es' para español.
-        self.ocr_reader = easyocr.Reader(['es', 'en'], gpu=True) 
-        print("EasyOCR listo.")
+        # ✅ CARGAR MODELO SEGÚN DISPONIBILIDAD
+        if TROCR_AVAILABLE:
+            print("🔄 Cargando TrOCR para manuscritos (puede tardar la primera vez)...")
+            try:
+                self.processor = TrOCRProcessor.from_pretrained('microsoft/trocr-large-handwritten')
+                self.model = VisionEncoderDecoderModel.from_pretrained('microsoft/trocr-large-handwritten')
+                self.device = "cuda" if torch.cuda.is_available() else "cpu"
+                self.model.to(self.device)
+                print(f"✅ TrOCR cargado en {self.device}")
+                self.use_trocr = True
+            except Exception as e:
+                print(f"⚠️ Error cargando TrOCR: {e}, usando EasyOCR")
+                self.ocr_reader = easyocr.Reader(['es'], gpu=False, verbose=False)
+                self.use_trocr = False
+        else:
+            print("🔄 Cargando EasyOCR...")
+            self.ocr_reader = easyocr.Reader(['es'], gpu=False, verbose=False)
+            self.use_trocr = False
+            print("✅ EasyOCR listo")
 
-        # --- Estilos TTK ---
+        self.setup_styles()
+        self.create_widgets()
+        atexit.register(self.cleanup)
+
+    def setup_styles(self):
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
         self.style.configure(".", background=COLOR_BG, foreground=COLOR_FG, fieldbackground=COLOR_CARD, borderwidth=0)
@@ -70,53 +103,53 @@ class OCRTranslatorApp(tk.Tk):
         self.style.map("TButton", background=[("active", "#0056b3")])
         self.style.configure("TCombobox", fieldbackground=COLOR_CARD, background=COLOR_CARD, foreground=COLOR_FG, arrowcolor=COLOR_FG)
         self.style.map('TCombobox', fieldbackground=[('readonly', COLOR_CARD)])
-        
-        self.create_widgets()
-        atexit.register(self.cleanup)
 
     def create_widgets(self):
         main_frame = ttk.Frame(self, padding=20)
         main_frame.pack(expand=True, fill=tk.BOTH)
         
-        ttk.Label(main_frame, text="Reconocimiento y Traducción", style="Title.TLabel").pack(pady=(0, 20))
+        model_name = "TrOCR (Microsoft)" if self.use_trocr else "EasyOCR"
+        ttk.Label(main_frame, text=f"📝 Reconocimiento Manuscrito ({model_name})", style="Title.TLabel").pack(pady=(0, 20))
 
+        # Botones principales
         top_frame = ttk.Frame(main_frame)
         top_frame.pack(fill=tk.X, pady=10)
 
         self.load_button = ttk.Button(top_frame, text="1. Cargar Imagen", command=self.load_image)
         self.load_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=(0, 5))
         
-        self.ocr_button = ttk.Button(top_frame, text="2. Reconocer Texto", command=self.recognize_text, state="disabled")
+        self.ocr_button = ttk.Button(top_frame, text="2. Reconocer Manuscrito", command=self.recognize_text, state="disabled")
         self.ocr_button.pack(side=tk.LEFT, expand=True, fill=tk.X, padx=5)
 
+        # Área de contenido
         content_frame = ttk.Frame(main_frame, style="Card.TFrame")
         content_frame.pack(fill=tk.BOTH, expand=True, pady=10)
         
+        # Imagen
         image_frame = ttk.Frame(content_frame, style="Card.TFrame")
         image_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=20, pady=20)
-        self.image_label = ttk.Label(image_frame, text="Carga una imagen para empezar", style="Card.TLabel", anchor="center")
+        self.image_label = ttk.Label(image_frame, text="📷 Carga una imagen manuscrita", style="Card.TLabel", anchor="center")
         self.image_label.pack(expand=True)
 
+        # Texto reconocido
         text_frame = ttk.Frame(content_frame, style="Card.TFrame")
         text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 20), pady=20)
         
-        ttk.Label(text_frame, text="Texto Reconocido:", style="Card.TLabel", font=FONT_BODY_BOLD).pack(anchor="w", pady=(0, 10))
+        ttk.Label(text_frame, text="✍️ Texto Reconocido:", style="Card.TLabel", font=FONT_BODY_BOLD).pack(anchor="w", pady=(0, 10))
         self.original_text_box = tk.Text(text_frame, height=10, width=40, bg=COLOR_BG, 
                                          fg=COLOR_FG, font=FONT_BODY, wrap="word",
                                          padx=10, pady=10, bd=0, highlightthickness=0)
         self.original_text_box.pack(fill=tk.BOTH, expand=True)
 
+        # Traducción
         bottom_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=20)
         bottom_frame.pack(fill=tk.X, pady=10)
-        
         bottom_frame.columnconfigure(1, weight=1)
 
-        ttk.Label(bottom_frame, text="Traducir a:", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10), sticky="w")
+        ttk.Label(bottom_frame, text="🌐 Traducir a:", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10), sticky="w")
         
-        self.lang_combo = ttk.Combobox(bottom_frame, 
-                                       values=list(SUPPORTED_LANGUAGES.keys()), 
-                                       state="readonly")
-        self.lang_combo.set("Español") # Valor por defecto
+        self.lang_combo = ttk.Combobox(bottom_frame, values=list(SUPPORTED_LANGUAGES.keys()), state="readonly")
+        self.lang_combo.set("Inglés")
         self.lang_combo.grid(row=0, column=1, sticky="ew")
 
         self.translate_button = ttk.Button(bottom_frame, text="3. Traducir y Hablar", 
@@ -128,7 +161,7 @@ class OCRTranslatorApp(tk.Tk):
                                            padx=10, pady=10, bd=0, highlightthickness=0)
         self.translated_text_box.pack(fill=tk.X, pady=(5, 10))
 
-        self.status_label = ttk.Label(main_frame, text="Estado: Listo", anchor="w")
+        self.status_label = ttk.Label(main_frame, text="💡 Listo - Carga una imagen", anchor="w")
         self.status_label.pack(fill=tk.X)
 
     def load_image(self):
@@ -148,7 +181,7 @@ class OCRTranslatorApp(tk.Tk):
             self.image_label.config(image=img_tk, text="")
             self.image_label.image = img_tk 
             
-            self.status_label.config(text=f"Imagen cargada: {os.path.basename(path)}")
+            self.status_label.config(text=f"✅ Imagen cargada: {os.path.basename(path)}")
             self.ocr_button.config(state="normal")
             self.original_text_box.delete("1.0", tk.END)
             self.translated_text_box.delete("1.0", tk.END)
@@ -157,70 +190,133 @@ class OCRTranslatorApp(tk.Tk):
         except Exception as e:
             messagebox.showerror("Error", f"No se pudo cargar la imagen: {e}")
 
-    # ==================================================================
-    # === FUNCIÓN MODIFICADA (VERSIÓN 3) ===
-    # ==================================================================
+    def preprocess_image(self, image_path):
+        """Preprocesamiento optimizado"""
+        img = Image.open(image_path)
+        
+        # Convertir a RGB
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+        
+        # Escalar a tamaño óptimo
+        width, height = img.size
+        scale = 2000 / max(width, height)
+        new_size = (int(width * scale), int(height * scale))
+        img = img.resize(new_size, Image.LANCZOS)
+        
+        # Mejorar contraste automáticamente
+        enhancer = ImageEnhance.Contrast(img)
+        img = enhancer.enhance(2.0)
+        
+        # Mejorar nitidez
+        img = img.filter(ImageFilter.SHARPEN)
+        
+        return img
+
+    def segment_lines(self, image_path):
+        """Segmentar imagen en líneas de texto"""
+        img = cv2.imread(image_path)
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Binarizar
+        _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        
+        # Encontrar contornos (líneas de texto)
+        kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (img.shape[1]//50, 1))
+        dilated = cv2.dilate(binary, kernel, iterations=3)
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # Ordenar líneas de arriba a abajo
+        lines = []
+        for contour in contours:
+            x, y, w, h = cv2.boundingRect(contour)
+            if h > 20 and w > 50:  # Filtrar ruido
+                lines.append((y, x, w, h))
+        
+        lines.sort(key=lambda l: l[0])  # Ordenar por Y
+        return lines, img
+
     def recognize_text(self):
-        """Usa EasyOCR con pre-procesamiento agresivo para fuentes finas."""
+        """Reconocimiento con el modelo cargado"""
         if not self.image_path:
             return
             
-        self.status_label.config(text="Procesando OCR (Pre-procesamiento agresivo)...")
-        self.update_idletasks() 
+        self.status_label.config(text="🔍 Analizando manuscrito...")
+        self.update_idletasks()
 
         try:
-            # --- INICIO DE LA MEJORA DE PROCESAMIENTO ---
-            
-            # 1. Cargar la imagen con OpenCV
-            image = cv2.imread(self.image_path)
-            
-            # 2. Convertir a escala de grises
-            gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-            # 3. Aplicar Umbral Adaptativo (Adaptive Thresholding)
-            # Esto es mucho mejor que el umbral global para fuentes complejas.
-            # Crea texto BLANCO (255) sobre fondo NEGRO (0).
-            adaptive_bw = cv2.adaptiveThreshold(
-                gray, 255, 
-                cv2.ADAPTIVE_THRESH_GAUSSIAN_C, # Método de "vecindario"
-                cv2.THRESH_BINARY_INV,          # Invertir (texto en blanco)
-                15, # Tamaño del bloque (ajustar si es necesario)
-                4   # Constante C (ajustar si es necesario)
-            )
-
-            # 4. "Engordar" el texto (Dilation)
-            # ¡Este es el paso más importante para fuentes finas!
-            # Creamos un "kernel" (un pequeño cuadrado)
-            kernel = np.ones((2, 2), np.uint8) 
-            # Aplicamos la dilatación para "engordar" el texto blanco
-            dilated_image = cv2.dilate(adaptive_bw, kernel, iterations=1)
-
-            # 5. Invertir la imagen para EasyOCR
-            # EasyOCR prefiere texto NEGRO sobre fondo BLANCO.
-            final_image = cv2.bitwise_not(dilated_image)
-            
-            # --- FIN DE LA MEJORA DE PROCESAMIENTO ---
-            
-            # Pasamos la imagen final (array de numpy) a EasyOCR
-            results = self.ocr_reader.readtext(final_image)
-            
-            self.original_text = " ".join([res[1] for res in results])
-            
-            if not self.original_text:
-                self.original_text = "[No se detectó texto]"
+            if self.use_trocr:
+                self.recognize_with_trocr()
+            else:
+                self.recognize_with_easyocr()
                 
-            self.original_text_box.delete("1.0", tk.END)
-            self.original_text_box.insert("1.0", self.original_text)
-            
-            self.status_label.config(text="¡Reconocimiento completado!")
-            self.translate_button.config(state="normal")
-
         except Exception as e:
-            messagebox.showerror("Error de OCR", f"Ocurrió un error: {e}")
-            self.status_label.config(text="Error de OCR", foreground=COLOR_ERROR)
-    # ==================================================================
-    # === FIN DE LA MODIFICACIÓN ===
-    # ==================================================================
+            messagebox.showerror("Error", f"Error en reconocimiento:\n{str(e)}")
+            self.status_label.config(text="❌ Error de OCR")
+
+    def recognize_with_trocr(self):
+        """Reconocimiento con TrOCR (más preciso para manuscritos)"""
+        lines, original_img = self.segment_lines(self.image_path)
+        
+        all_text = []
+        total_lines = len(lines)
+        
+        for idx, (y, x, w, h) in enumerate(lines):
+            self.status_label.config(text=f"🔍 Procesando línea {idx+1}/{total_lines}...")
+            self.update_idletasks()
+            
+            # Extraer línea
+            line_img = original_img[y:y+h, x:x+w]
+            line_pil = Image.fromarray(cv2.cvtColor(line_img, cv2.COLOR_BGR2RGB))
+            
+            # Preprocesar
+            line_pil = line_pil.convert('RGB')
+            
+            # Reconocer con TrOCR
+            pixel_values = self.processor(line_pil, return_tensors="pt").pixel_values.to(self.device)
+            generated_ids = self.model.generate(pixel_values)
+            text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+            
+            all_text.append(text)
+        
+        self.original_text = "\n".join(all_text)
+        self.display_result()
+
+    def recognize_with_easyocr(self):
+        """Reconocimiento con EasyOCR mejorado"""
+        img = self.preprocess_image(self.image_path)
+        img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
+        
+        results = self.ocr_reader.readtext(
+            img_cv,
+            detail=1,
+            paragraph=False,
+            decoder='greedy',
+            batch_size=1
+        )
+        
+        if results:
+            # Ordenar por posición Y
+            results.sort(key=lambda r: r[0][0][1])
+            text_lines = [r[1] for r in results if len(r) > 1]
+            self.original_text = "\n".join(text_lines)
+        else:
+            self.original_text = ""
+        
+        self.display_result()
+
+    def display_result(self):
+        """Mostrar resultado"""
+        if not self.original_text:
+            self.original_text = "[❌ No se detectó texto]"
+        else:
+            self.original_text = self.original_text.strip()
+            
+        self.original_text_box.delete("1.0", tk.END)
+        self.original_text_box.insert("1.0", self.original_text)
+        
+        self.status_label.config(text="✅ ¡Reconocimiento completado!")
+        self.translate_button.config(state="normal")
 
     def run_translation_in_thread(self):
         self.translate_button.config(state="disabled")
@@ -229,31 +325,31 @@ class OCRTranslatorApp(tk.Tk):
     def translate_and_speak(self):
         try:
             text_to_translate = self.original_text
-            if not text_to_translate or text_to_translate == "[No se detectó texto]":
-                self.status_label.config(text="No hay texto para traducir.")
+            if not text_to_translate or "[❌" in text_to_translate:
+                self.status_label.config(text="⚠️ No hay texto para traducir.")
                 self.translate_button.config(state="normal") 
                 return
             
             selected_lang_name = self.lang_combo.get()
             target_lang_code = SUPPORTED_LANGUAGES.get(selected_lang_name, "en")
 
-            self.status_label.config(text=f"Traduciendo a {selected_lang_name}...")
+            self.status_label.config(text=f"🌐 Traduciendo a {selected_lang_name}...")
             
             translated_text = ts.translate_text(text_to_translate, 
-                                                from_language='auto', 
+                                                from_language='es', 
                                                 to_language=target_lang_code)
             
             self.after(0, self.update_translated_text, translated_text)
             
-            self.status_label.config(text="Generando audio...")
+            self.status_label.config(text="🔊 Generando audio...")
             
             tts = gTTS(text=translated_text, lang=target_lang_code)
             tts.save(self.temp_audio_file)
             
-            self.status_label.config(text="Reproduciendo...")
+            self.status_label.config(text="▶️ Reproduciendo...")
             playsound(self.temp_audio_file)
             
-            self.status_label.config(text="¡Completado!")
+            self.status_label.config(text="✅ ¡Completado!")
 
         except Exception as e:
             self.after(0, self.show_translation_error, e)
@@ -266,9 +362,8 @@ class OCRTranslatorApp(tk.Tk):
         self.translated_text_box.insert("1.0", text)
     
     def show_translation_error(self, e):
-        messagebox.showerror("Error de Traducción/Voz", 
-                             f"Ocurrió un error. Revisa tu conexión a internet.\nDetalle: {e}")
-        self.status_label.config(text="Error en la traducción")
+        messagebox.showerror("Error de Traducción", f"Ocurrió un error:\n{e}")
+        self.status_label.config(text="❌ Error en la traducción")
         
     def reactivate_translate_button(self):
         self.translate_button.config(state="normal")
@@ -277,11 +372,9 @@ class OCRTranslatorApp(tk.Tk):
         if os.path.exists(self.temp_audio_file):
             try:
                 os.remove(self.temp_audio_file)
-                print(f"Archivo temporal '{self.temp_audio_file}' eliminado.")
-            except PermissionError:
-                print(f"No se pudo eliminar '{self.temp_audio_file}', el archivo está en uso.")
+            except:
+                pass
 
-# --- 4. EJECUTAR LA APLICACIÓN ---
 if __name__ == "__main__":
     app = OCRTranslatorApp()
     app.mainloop()

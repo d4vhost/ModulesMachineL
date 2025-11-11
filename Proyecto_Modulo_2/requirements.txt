@@ -1,11 +1,19 @@
-Pillow
-opencv-python
-easyocr
-# Dependencias de easyocr (pueden ser necesarias)
-torch
-torchvision
-# Librería de traducción (de tu Módulo 7)
-translators
-# Librerías para Texto-a-Voz
-gTTS
+# Procesamiento de imágenes
+Pillow>=10.0.0
+opencv-python>=4.8.0
+
+# OCR básico (fallback)
+easyocr>=1.7.0
+
+# TrOCR - Modelo avanzado de Microsoft para manuscritos
+transformers>=4.30.0
+torch>=2.0.0
+torchvision>=0.15.0
+
+# Traducción y voz
+translators>=5.8.0
+gTTS>=2.3.0
 playsound==1.2.2
+
+# Utilidades
+numpy>=1.24.0
