@@ -36,7 +36,7 @@ os.makedirs(GALLERY_DIR, exist_ok=True)
 # --- CONFIGURACIÓN DE RED ---
 # Para el EMISOR: Pon aquí la IP del RECEPTOR
 # Para el RECEPTOR: Usa '0.0.0.0' para escuchar en todas las interfaces
-RECEIVER_IP = os.environ.get('RECEIVER_IP', '127.0.0.1')
+RECEIVER_IP = os.environ.get('RECEIVER_IP', '10.79.26.110')
 PORT = 9999
 
 # --- CONTROLADOR DE GESTOS ---
