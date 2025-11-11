@@ -1,0 +1,11 @@
+Pillow
+opencv-python
+easyocr
+# Dependencias de easyocr (pueden ser necesarias)
+torch
+torchvision
+# Librería de traducción (de tu Módulo 7)
+translators
+# Librerías para Texto-a-Voz
+gTTS
+playsound==1.2.2
