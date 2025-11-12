@@ -1,0 +1,5 @@
+# Ignorar datasets
+data/
+
+# Ignorar modelos generados
+models/
