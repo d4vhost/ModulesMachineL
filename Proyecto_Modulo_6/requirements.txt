@@ -1,0 +1,4 @@
+pandas
+pysentimiento
+google-api-python-client
+streamlit

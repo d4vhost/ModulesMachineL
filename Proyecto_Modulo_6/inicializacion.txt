@@ -1,0 +1,2 @@
+# Inicializacion en web localhost los partidos
+streamlit run app_web.py

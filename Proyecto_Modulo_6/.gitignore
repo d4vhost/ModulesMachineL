@@ -1,0 +1,7 @@
+# Ignorar archivos de configuración con claves secretas
+config.py
+
+# Archivos de entorno virtual y caché de Python
+venv/
+__pycache__/
+*.pyc
