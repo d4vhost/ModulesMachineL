@@ -1,3 +1,2 @@
-numpy
-joblib
-# (tkinter es parte de la instalación estándar de Python)
+numpy>=1.21.0
+joblib>=1.0.0
