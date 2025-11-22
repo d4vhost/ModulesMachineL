@@ -1,0 +1,3 @@
+numpy
+joblib
+# (tkinter es parte de la instalación estándar de Python)
