@@ -5,6 +5,7 @@ from tkinter import ttk, messagebox
 from juego_snake import SnakeGame
 from agente_rl_snake import AgenteSnakeQL
 import os
+import math
 
 # --- CONFIGURACIÓN DE ESTILO ---
 COLOR_BG = "#1e1e1e"
@@ -20,18 +21,18 @@ FONT_STATS = ("SF Pro Text", 14, "bold")
 FONT_BODY = ("SF Pro Text", 12)
 
 MODEL_PATH = "models/agente_snake_ql.joblib"
-CELL_SIZE = 28  # Celdas más pequeñas
+CELL_SIZE = 28
 GAME_SPEED = 100
 
 class AppSnakeIA(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("🐍 Snake IA - Q-Learning (Módulo 10)")
+        self.title("Snake Q-Learning")
         self.configure(bg=COLOR_BG)
         
-        self.grid_size = 20  # Más ancho: 20x15 en lugar de 15x15
-        self.grid_height = 15  # Alto reducido
+        self.grid_size = 20
+        self.grid_height = 15
         self.juego = SnakeGame(grid_width=self.grid_size, grid_height=self.grid_height, vidas_iniciales=3)
         self.agente = AgenteSnakeQL()
         
@@ -71,8 +72,8 @@ class AppSnakeIA(tk.Tk):
         ttl_frame = ttk.Frame(main_frame)
         ttl_frame.pack(fill="x", pady=(0, 10))
         
-        ttk.Label(ttl_frame, text="🐍 Snake IA - Q-Learning", 
-                 style="Title.TLabel").pack()
+        ttl_label = ttk.Label(ttl_frame, text="Snake Q-Learning", style="Title.TLabel")
+        ttl_label.pack()
         
         # Panel de estadísticas
         stats_frame = ttk.Frame(main_frame)
@@ -84,16 +85,16 @@ class AppSnakeIA(tk.Tk):
         self.label_puntos.pack(side="left", padx=15)
         
         # Vidas
-        self.label_vidas = ttk.Label(stats_frame, text="❤️ Vidas: 3", 
+        self.label_vidas = ttk.Label(stats_frame, text="Vidas: 3", 
                                     style="Stats.TLabel", foreground="#ff3366")
         self.label_vidas.pack(side="left", padx=15)
         
         # Record
-        self.label_record = ttk.Label(stats_frame, text="🏆 Record: 0", 
+        self.label_record = ttk.Label(stats_frame, text="Record: 0", 
                                      style="Stats.TLabel", foreground="#ffd700")
         self.label_record.pack(side="right", padx=15)
         
-        # Canvas del juego - MÁS ANCHO, MENOS ALTO
+        # Canvas del juego
         canvas_width = self.grid_size * CELL_SIZE
         canvas_height = self.grid_height * CELL_SIZE
         
@@ -112,7 +113,7 @@ class AppSnakeIA(tk.Tk):
         
         # Botón de control
         self.btn_iniciar = tk.Button(
-            main_frame, text="▶️ Empezar Juego", 
+            main_frame, text="Empezar Juego", 
             font=("SF Pro Display", 14, "bold"), 
             bg=COLOR_ACCENT, fg="#000000",
             activebackground="#00a3cc", relief="flat", 
@@ -121,15 +122,6 @@ class AppSnakeIA(tk.Tk):
             cursor="hand2"
         )
         self.btn_iniciar.pack(pady=15, fill="x")
-        
-        # Etiqueta de estado
-        self.label_estado = ttk.Label(
-            main_frame, 
-            text="La IA está lista para jugar", 
-            font=FONT_BODY,
-            foreground="#888888"
-        )
-        self.label_estado.pack(pady=5)
         
     def dibujar_grid(self):
         """Dibuja la cuadrícula de fondo"""
@@ -145,31 +137,130 @@ class AppSnakeIA(tk.Tk):
                 )
     
     def dibujar_juego(self):
-        """Dibuja la serpiente y la comida"""
-        self.canvas.delete("snake", "food")
+        """Dibuja la serpiente como un cuerpo continuo tipo Slither.io"""
+        self.canvas.delete("snake", "food", "eyes")
         
-        # Dibujar serpiente
-        for idx, (fila, col) in enumerate(self.juego.snake):
-            x1 = col * CELL_SIZE + 2
-            y1 = fila * CELL_SIZE + 2
-            x2 = x1 + CELL_SIZE - 4
-            y2 = y1 + CELL_SIZE - 4
+        if len(self.juego.snake) < 2:
+            return
+        
+        # Radio base de la serpiente
+        radio_base = CELL_SIZE // 2 - 2
+        
+        # Dibujar cuerpo continuo
+        for idx in range(len(self.juego.snake) - 1):
+            fila1, col1 = self.juego.snake[idx]
+            fila2, col2 = self.juego.snake[idx + 1]
             
-            # Cabeza más brillante
-            color = COLOR_SNAKE if idx > 0 else "#00ffcc"
-            self.canvas.create_rectangle(
-                x1, y1, x2, y2,
+            x1 = col1 * CELL_SIZE + CELL_SIZE // 2
+            y1 = fila1 * CELL_SIZE + CELL_SIZE // 2
+            x2 = col2 * CELL_SIZE + CELL_SIZE // 2
+            y2 = fila2 * CELL_SIZE + CELL_SIZE // 2
+            
+            # Calcular el radio para cada segmento (cabeza más grande)
+            if idx == 0:
+                radio = radio_base
+            else:
+                # Decrece gradualmente hacia la cola
+                factor = 1 - (idx / len(self.juego.snake)) * 0.4
+                radio = int(radio_base * factor)
+            
+            # Color más brillante en la cabeza
+            if idx == 0:
+                color = "#00ffcc"
+            else:
+                color = COLOR_SNAKE
+            
+            # Dibujar círculo en la posición actual
+            self.canvas.create_oval(
+                x1 - radio, y1 - radio,
+                x1 + radio, y1 + radio,
                 fill=color, outline="", tags="snake"
+            )
+            
+            # Dibujar línea de conexión entre segmentos
+            if idx < len(self.juego.snake) - 1:
+                # Calcular ángulo para el grosor perpendicular
+                dx = x2 - x1
+                dy = y2 - y1
+                dist = math.sqrt(dx*dx + dy*dy)
+                
+                if dist > 0:
+                    # Vector perpendicular
+                    px = -dy / dist * radio
+                    py = dx / dist * radio
+                    
+                    # Dibujar polígono de conexión
+                    self.canvas.create_polygon(
+                        x1 + px, y1 + py,
+                        x1 - px, y1 - py,
+                        x2 - px, y2 - py,
+                        x2 + px, y2 + py,
+                        fill=color, outline="", tags="snake"
+                    )
+        
+        # Dibujar última parte de la cola
+        ultima_fila, ultima_col = self.juego.snake[-1]
+        x_ultima = ultima_col * CELL_SIZE + CELL_SIZE // 2
+        y_ultima = ultima_fila * CELL_SIZE + CELL_SIZE // 2
+        radio_cola = int(radio_base * 0.6)
+        
+        self.canvas.create_oval(
+            x_ultima - radio_cola, y_ultima - radio_cola,
+            x_ultima + radio_cola, y_ultima + radio_cola,
+            fill=COLOR_SNAKE, outline="", tags="snake"
+        )
+        
+        # DIBUJAR OJOS EN LA CABEZA
+        cabeza_fila, cabeza_col = self.juego.snake[0]
+        x_cabeza = cabeza_col * CELL_SIZE + CELL_SIZE // 2
+        y_cabeza = cabeza_fila * CELL_SIZE + CELL_SIZE // 2
+        
+        # Determinar dirección para posicionar los ojos
+        direccion = self.juego.direccion
+        
+        # Tamaño de los ojos
+        tamano_ojo = radio_base // 3
+        separacion = radio_base // 2
+        
+        # Posición de los ojos según la dirección
+        if direccion == 'RIGHT':
+            ojo1_x, ojo1_y = x_cabeza + separacion//2, y_cabeza - separacion
+            ojo2_x, ojo2_y = x_cabeza + separacion//2, y_cabeza + separacion
+        elif direccion == 'LEFT':
+            ojo1_x, ojo1_y = x_cabeza - separacion//2, y_cabeza - separacion
+            ojo2_x, ojo2_y = x_cabeza - separacion//2, y_cabeza + separacion
+        elif direccion == 'UP':
+            ojo1_x, ojo1_y = x_cabeza - separacion, y_cabeza - separacion//2
+            ojo2_x, ojo2_y = x_cabeza + separacion, y_cabeza - separacion//2
+        elif direccion == 'DOWN':
+            ojo1_x, ojo1_y = x_cabeza - separacion, y_cabeza + separacion//2
+            ojo2_x, ojo2_y = x_cabeza + separacion, y_cabeza + separacion//2
+        
+        # Dibujar ojos (blanco con pupila negra)
+        for ojo_x, ojo_y in [(ojo1_x, ojo1_y), (ojo2_x, ojo2_y)]:
+            # Ojo blanco
+            self.canvas.create_oval(
+                ojo_x - tamano_ojo, ojo_y - tamano_ojo,
+                ojo_x + tamano_ojo, ojo_y + tamano_ojo,
+                fill="white", outline="", tags="eyes"
+            )
+            # Pupila negra
+            pupila = tamano_ojo // 2
+            self.canvas.create_oval(
+                ojo_x - pupila, ojo_y - pupila,
+                ojo_x + pupila, ojo_y + pupila,
+                fill="black", outline="", tags="eyes"
             )
         
         # Dibujar comida
         fila_food, col_food = self.juego.food
-        x1 = col_food * CELL_SIZE + 5
-        y1 = fila_food * CELL_SIZE + 5
-        x2 = x1 + CELL_SIZE - 10
-        y2 = y1 + CELL_SIZE - 10
+        x_center = col_food * CELL_SIZE + CELL_SIZE // 2
+        y_center = fila_food * CELL_SIZE + CELL_SIZE // 2
+        radio = CELL_SIZE // 3
+        
         self.canvas.create_oval(
-            x1, y1, x2, y2,
+            x_center - radio, y_center - radio,
+            x_center + radio, y_center + radio,
             fill=COLOR_FOOD, outline="", tags="food"
         )
     
@@ -177,20 +268,18 @@ class AppSnakeIA(tk.Tk):
         """Actualiza las estadísticas en pantalla"""
         info = self.juego.get_info()
         self.label_puntos.config(text=f"Puntos: {info['puntos']}")
-        self.label_vidas.config(text=f"❤️ Vidas: {info['vidas']}")
-        self.label_record.config(text=f"🏆 Record: {info['record']}")
+        self.label_vidas.config(text=f"Vidas: {info['vidas']}")
+        self.label_record.config(text=f"Record: {info['record']}")
     
     def toggle_juego(self):
         """Inicia o pausa el juego"""
         if not self.game_running:
             self.game_running = True
-            self.btn_iniciar.config(text="⏸️ Pausar Juego", bg="#ff9500")
-            self.label_estado.config(text="🤖 La IA está jugando...")
+            self.btn_iniciar.config(text="Pausar Juego", bg="#ff9500")
             self.loop_juego()
         else:
             self.game_running = False
-            self.btn_iniciar.config(text="▶️ Continuar", bg=COLOR_ACCENT)
-            self.label_estado.config(text="⏸️ Juego pausado")
+            self.btn_iniciar.config(text="Continuar", bg=COLOR_ACCENT)
     
     def loop_juego(self):
         """Loop principal del juego"""
@@ -209,17 +298,6 @@ class AppSnakeIA(tk.Tk):
         # Ejecutar acción
         _, _, perdio_vida, game_over = self.juego.step(accion)
         
-        # Si perdió una vida, mostrar notificación temporal
-        if perdio_vida and not game_over:
-            self.label_estado.config(
-                text=f"💥 ¡Choque! Vidas restantes: {self.juego.vidas}",
-                foreground="#ff3366"
-            )
-            self.after(1500, lambda: self.label_estado.config(
-                text="🤖 La IA está jugando...",
-                foreground="#888888"
-            ))
-        
         # Dibujar y actualizar
         self.dibujar_juego()
         self.actualizar_stats()
@@ -232,28 +310,21 @@ class AppSnakeIA(tk.Tk):
         info = self.juego.get_info()
         
         self.game_running = False
-        self.btn_iniciar.config(text="▶️ Jugar de Nuevo", bg=COLOR_ACCENT)
-        self.label_estado.config(
-            text="💀 Game Over - Sin vidas restantes",
-            foreground="#ff3366"
-        )
+        self.btn_iniciar.config(text="Jugar de Nuevo", bg=COLOR_ACCENT)
         
         mensaje = (
-            f"🐍 ¡Game Over!\n\n"
+            f"Game Over\n\n"
             f"Puntos: {info['puntos']}\n"
             f"Longitud: {info['longitud']}\n"
             f"Record: {info['record']}"
         )
         messagebox.showinfo("Game Over", mensaje)
         
-        # Reiniciar juego completo
+        # Reiniciar juego completo y limpiar tablero
         self.juego.reset_completo()
-        self.dibujar_juego()
+        self.canvas.delete("snake", "food", "eyes")
+        self.dibujar_grid()
         self.actualizar_stats()
-        self.label_estado.config(
-            text="La IA está lista para jugar",
-            foreground="#888888"
-        )
     
     def centrar_ventana(self):
         """Centra la ventana en la pantalla"""

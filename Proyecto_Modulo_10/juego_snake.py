@@ -10,24 +10,41 @@ class SnakeGame:
         self.vidas_totales = vidas_iniciales
         self.vidas = vidas_iniciales
         self.record = 0
+        self.longitud_actual = 1  # Guardar la longitud actual
         self.reset()
     
     def reset(self):
-        """Reinicia posición pero MANTIENE el tamaño de la serpiente"""
-        # Si ya existe una serpiente, guardar su tamaño
-        longitud_actual = len(self.snake) if hasattr(self, 'snake') else 1
+        """Reinicia en posición ALEATORIA pero MANTIENE el tamaño de la serpiente"""
+        # Generar posición aleatoria para la cabeza
+        # Calcular margen mínimo necesario para la serpiente
+        margen_x = min(self.longitud_actual, self.grid_width // 3)
+        margen_y = min(self.longitud_actual, self.grid_height // 3)
         
-        # Serpiente empieza en el centro con el mismo tamaño
-        centro_x = self.grid_width // 2
-        centro_y = self.grid_height // 2
+        # Asegurar que hay espacio suficiente
+        min_x = margen_x
+        max_x = max(min_x + 1, self.grid_width - margen_x - 1)
+        min_y = margen_y
+        max_y = max(min_y + 1, self.grid_height - margen_y - 1)
         
-        # Crear serpiente con la longitud actual
+        centro_x = random.randint(min_x, max_x)
+        centro_y = random.randint(min_y, max_y)
+        
+        # Dirección aleatoria inicial
+        direcciones_posibles = ['UP', 'DOWN', 'LEFT', 'RIGHT']
+        self.direccion = random.choice(direcciones_posibles)
+        
+        # Crear serpiente con la longitud actual en la dirección opuesta
         self.snake = [(centro_y, centro_x)]
-        for i in range(1, longitud_actual):
-            # Añadir segmentos hacia la izquierda
-            self.snake.append((centro_y, centro_x - i))
         
-        self.direccion = 'RIGHT'  # Dirección inicial fija
+        for i in range(1, self.longitud_actual):
+            if self.direccion == 'RIGHT':
+                self.snake.append((centro_y, centro_x - i))
+            elif self.direccion == 'LEFT':
+                self.snake.append((centro_y, centro_x + i))
+            elif self.direccion == 'DOWN':
+                self.snake.append((centro_y - i, centro_x))
+            elif self.direccion == 'UP':
+                self.snake.append((centro_y + i, centro_x))
         
         # Colocar comida aleatoria
         self.spawn_food()
@@ -41,10 +58,10 @@ class SnakeGame:
         return self.get_estado()
     
     def reset_completo(self):
-        """Reset completo con vidas y puntos restaurados"""
+        """Reset completo con vidas, puntos y tamaño restaurados"""
         self.vidas = self.vidas_totales
         self.puntos = 0
-        self.snake = None  # Forzar reset de tamaño
+        self.longitud_actual = 1  # RESETEAR el tamaño a 1
         return self.reset()
     
     def spawn_food(self):
@@ -151,7 +168,7 @@ class SnakeGame:
                 self.game_over = True
                 return self.get_estado(), -100, True, True
             else:
-                # Pierde vida pero MANTIENE tamaño
+                # Pierde vida, MANTIENE tamaño y aparece en posición ALEATORIA
                 self.reset()
                 return self.get_estado(), -100, True, False
         
@@ -162,7 +179,7 @@ class SnakeGame:
                 self.game_over = True
                 return self.get_estado(), -100, True, True
             else:
-                # Pierde vida pero MANTIENE tamaño
+                # Pierde vida, MANTIENE tamaño y aparece en posición ALEATORIA
                 self.reset()
                 return self.get_estado(), -100, True, False
         
@@ -182,6 +199,9 @@ class SnakeGame:
             self.spawn_food()
             self.pasos_sin_comida = 0
             
+            # IMPORTANTE: Actualizar la longitud guardada
+            self.longitud_actual = len(self.snake)
+            
             # Actualizar record
             if self.puntos > self.record:
                 self.record = self.puntos
@@ -199,6 +219,10 @@ class SnakeGame:
         
         # CASTIGO: Si tarda mucho sin comer (evita loops infinitos)
         if self.pasos_sin_comida > self.max_pasos_sin_comida:
+            # Si la serpiente es muy larga, reducir el tamaño a la mitad
+            if self.longitud_actual > 10:
+                self.longitud_actual = max(5, self.longitud_actual // 2)
+            
             self.vidas -= 1
             if self.vidas <= 0:
                 self.game_over = True

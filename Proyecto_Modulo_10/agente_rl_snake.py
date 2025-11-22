@@ -93,7 +93,7 @@ class AgenteSnakeQL:
         }
         
         joblib.dump(modelo, ruta)
-        print(f"✅ Modelo guardado en: {ruta}")
+        print(f"Modelo guardado en: {ruta}")
         print(f"   - Estados explorados: {len(self.q_table)}")
         print(f"   - Epsilon actual: {self.epsilon:.4f}")
         print(f"   - Episodios entrenados: {self.episodios_entrenados}")
@@ -118,11 +118,11 @@ class AgenteSnakeQL:
         self.episodios_entrenados = modelo.get('episodios', 0)
         self.recompensa_total_historico = modelo.get('historial', [])
         
-        print(f"✅ Modelo cargado desde: {ruta}")
+        print(f"Modelo cargado desde: {ruta}")
         print(f"   - Estados en memoria: {len(self.q_table)}")
         print(f"   - Episodios previos: {self.episodios_entrenados}")
     
     def modo_juego(self):
         """Configura el agente para jugar (sin exploración)"""
         self.epsilon = 0.0
-        print("🎮 Modo juego activado (explotación pura)")
+        print("Modo juego activado (explotación pura)")
