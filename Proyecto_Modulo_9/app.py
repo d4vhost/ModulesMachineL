@@ -1,647 +1,556 @@
+import os
+import warnings
+import logging
+
+# --- FILTROS DE LIMPIEZA DE CONSOLA ---
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
+warnings.filterwarnings("ignore")
+logging.getLogger("tensorflow").setLevel(logging.ERROR)
+
 import tkinter as tk
 from tkinter import ttk
-from PIL import Image, ImageTk, ImageOps, ImageDraw, ImageFilter
+from PIL import Image, ImageTk, ImageOps, ImageDraw
 import cv2
 import mediapipe as mp
 import threading
-import os
 import time
 import queue
 import numpy as np
 import socket
 import pickle
 import struct
+import math
+import random
+from datetime import datetime
 
-# --- CONFIGURACIÓN DE ESTILO MEJORADA ---
-COLOR_BG = "#000000"
-COLOR_CARD = "#1c1c1e"
-COLOR_FG = "#ffffff"
-COLOR_ACCENT = "#ff6b00"  # Naranja Huawei
-COLOR_SUCCESS = "#34c759"
-COLOR_PLACEHOLDER = "#8e8e93"
-COLOR_ERROR = "#ff3b30"
-COLOR_GLASS = "#2c2c2e"
+# --- CONFIGURACIÓN ESTÉTICA ---
+COLOR_BG = "#0a0e27"
+COLOR_PANEL = "#1a1f3a"
+COLOR_PANEL_LIGHT = "#252d4a"
+COLOR_TEXT = "#e8eaf6"
+COLOR_TEXT_DIM = "#9fa8c9"
+COLOR_ACCENT = "#00d4ff"
+COLOR_ACCENT_2 = "#6366f1"
+COLOR_SUCCESS = "#10b981"
+COLOR_CHECKER_1 = "#2a2f4a"
+COLOR_CHECKER_2 = "#1e2338"
 
-FONT_TITLE = ("SF Pro Display", 24, "bold")
-FONT_SUBTITLE = ("SF Pro Display", 16)
+FONT_TITLE = ("SF Pro Display", 18, "bold")
+FONT_SUBTITLE = ("SF Pro Display", 12)
 FONT_BODY = ("SF Pro Text", 11)
-FONT_STATUS = ("SF Pro Text", 13, "bold")
-FONT_PHONE_TITLE = ("SF Pro Text", 10, "bold")
+FONT_STATUS = ("SF Pro Text", 10, "bold")
+FONT_HAMBURGER = ("SF Pro Display", 24)
 
 # --- RUTAS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GALLERY_DIR = os.path.join(BASE_DIR, "data", "gallery_images")
+RECEIVED_DIR = os.path.join(BASE_DIR, "data", "gallery_images_receptor")
+ICON_PATH = os.path.join(BASE_DIR, "data", "icon", "estacion.png")
+
 os.makedirs(GALLERY_DIR, exist_ok=True)
+os.makedirs(RECEIVED_DIR, exist_ok=True)
 
-# --- CONFIGURACIÓN DE RED ---
-# Para el EMISOR: Pon aquí la IP del RECEPTOR
-# Para el RECEPTOR: Usa '0.0.0.0' para escuchar en todas las interfaces
-RECEIVER_IP = os.environ.get('RECEIVER_IP', '10.79.26.110')
+# --- RED ---
+RECEIVER_IP = os.environ.get('RECEIVER_IP', '127.0.0.1')
 PORT = 9999
+MAX_IMG_SIZE = (500, 500)
 
-# --- CONTROLADOR DE GESTOS ---
-class GestureController:
-    def __init__(self, app_queue):
-        self.app_queue = app_queue
-        self.cap = None
-        self.running = False
-        self.mp_hands = mp.solutions.hands
-        self.hands = self.mp_hands.Hands(
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7,
-            max_num_hands=1
-        )
-        self.mp_draw = mp.solutions.drawing_utils
-        self.last_gesture = "NINGUNO"
-        self.last_gesture_time = time.time()
-        self.debounce_time = 0.5
-        self.hand_position = None
+# --- UTILERÍAS ---
+def center_window(root, width, height):
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x = (screen_width - width) // 2
+    y = (screen_height - height) // 2
+    root.geometry(f'{width}x{height}+{x}+{y}')
 
-    def start(self):
-        self.cap = cv2.VideoCapture(0)
-        if not self.cap.isOpened():
-            self.app_queue.put(("error", "No se pudo abrir la cámara"))
-            return
-        self.running = True
-        self.thread = threading.Thread(target=self.detect_gestures_loop, daemon=True)
-        self.thread.start()
+def create_checkered_bg(width, height, size=20):
+    img = Image.new("RGB", (width, height), COLOR_CHECKER_1)
+    draw = ImageDraw.Draw(img)
+    for y in range(0, height, size):
+        for x in range(0, width, size):
+            if (x // size + y // size) % 2 == 1:
+                draw.rectangle((x, y, x + size, y + size), fill=COLOR_CHECKER_2)
+    return img
 
-    def stop(self):
-        self.running = False
-        if hasattr(self, 'thread') and self.thread:
-            self.thread.join(timeout=1.0)
-        if self.cap:
-            self.cap.release()
+def resize_image_smart(img, max_size):
+    img.thumbnail(max_size, Image.Resampling.LANCZOS)
+    return img
 
-    def classify_gesture(self, hand_landmarks):
-        landmarks = hand_landmarks.landmark
-        
-        # Detectar dedos extendidos
-        fingers_extended = []
-        
-        # Pulgar (requiere lógica especial)
-        thumb_tip = landmarks[self.mp_hands.HandLandmark.THUMB_TIP]
-        thumb_ip = landmarks[self.mp_hands.HandLandmark.THUMB_IP]
-        fingers_extended.append(thumb_tip.x < thumb_ip.x if thumb_tip.x < 0.5 else thumb_tip.x > thumb_ip.x)
-        
-        # Resto de dedos
-        finger_tips = [
-            self.mp_hands.HandLandmark.INDEX_FINGER_TIP,
-            self.mp_hands.HandLandmark.MIDDLE_FINGER_TIP,
-            self.mp_hands.HandLandmark.RING_FINGER_TIP,
-            self.mp_hands.HandLandmark.PINKY_TIP
-        ]
-        finger_pips = [
-            self.mp_hands.HandLandmark.INDEX_FINGER_PIP,
-            self.mp_hands.HandLandmark.MIDDLE_FINGER_PIP,
-            self.mp_hands.HandLandmark.RING_FINGER_PIP,
-            self.mp_hands.HandLandmark.PINKY_PIP
-        ]
-        
-        for tip, pip in zip(finger_tips, finger_pips):
-            fingers_extended.append(landmarks[tip].y < landmarks[pip].y)
-        
-        # Clasificar gestos
-        if sum(fingers_extended) == 0:
-            return "PUÑO"
-        elif sum(fingers_extended) >= 4:
-            return "PALMA"
-        return "NINGUNO"
+def load_icon_image(size=(100, 100)):
+    try:
+        if os.path.exists(ICON_PATH):
+            icon = Image.open(ICON_PATH).convert("RGBA")
+            data = np.array(icon)
+            # Remover fondo blanco
+            white_mask = (data[:,:,0] > 230) & (data[:,:,1] > 230) & (data[:,:,2] > 230)
+            data[white_mask] = [0, 0, 0, 0]
+            icon = Image.fromarray(data, 'RGBA')
+            icon = icon.resize(size, Image.Resampling.LANCZOS)
+            
+            # Colorear cyan
+            colored_data = np.array(icon)
+            for i in range(colored_data.shape[0]):
+                for j in range(colored_data.shape[1]):
+                    if colored_data[i, j, 3] > 0:
+                        colored_data[i, j, 0] = min(255, int(colored_data[i, j, 0] * 0.2 + 0))
+                        colored_data[i, j, 1] = min(255, int(colored_data[i, j, 1] * 0.7 + 212))
+                        colored_data[i, j, 2] = min(255, int(colored_data[i, j, 2] * 0.9 + 255))
+            
+            icon = Image.fromarray(colored_data, 'RGBA')
+            return ImageTk.PhotoImage(icon)
+        else:
+            return None
+    except Exception as e:
+        print(f"[Error] Al cargar icono: {e}")
+        return None
 
-    def detect_gestures_loop(self):
-        while self.running and self.cap.isOpened():
-            ret, frame = self.cap.read()
-            if not ret:
-                break
-            
-            frame = cv2.flip(frame, 1)
-            frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            results = self.hands.process(frame_rgb)
-            
-            gesture_name = "NINGUNO"
-            hand_pos = None
-            
-            if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    # Dibujar landmarks con estilo mejorado
-                    self.mp_draw.draw_landmarks(
-                        frame,
-                        hand_landmarks,
-                        self.mp_hands.HAND_CONNECTIONS,
-                        self.mp_draw.DrawingSpec(color=(255, 107, 0), thickness=2, circle_radius=3),
-                        self.mp_draw.DrawingSpec(color=(255, 255, 255), thickness=2)
-                    )
-                    gesture_name = self.classify_gesture(hand_landmarks)
-                    
-                    # Obtener posición de la mano (centro de la palma)
-                    wrist = hand_landmarks.landmark[self.mp_hands.HandLandmark.WRIST]
-                    middle_mcp = hand_landmarks.landmark[self.mp_hands.HandLandmark.MIDDLE_FINGER_MCP]
-                    hand_pos = {
-                        'x': (wrist.x + middle_mcp.x) / 2,
-                        'y': (wrist.y + middle_mcp.y) / 2
-                    }
-            
-            current_time = time.time()
-            if gesture_name != self.last_gesture:
-                if (current_time - self.last_gesture_time > self.debounce_time):
-                    self.last_gesture = gesture_name
-                    self.last_gesture_time = current_time
-                    self.app_queue.put(("gesture", gesture_name, hand_pos))
-            
-            self.hand_position = hand_pos
-            self.app_queue.put(("video_frame", frame))
-            time.sleep(0.01)
-
-# --- SERVIDOR DE TRANSFERENCIA ---
-class TransferServer:
-    def __init__(self, app_queue):
-        self.app_queue = app_queue
-        self.server_socket = None
-        self.running = False
-
-    def start(self):
-        self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        try:
-            # Escuchar en todas las interfaces de red (0.0.0.0)
-            self.server_socket.bind(('0.0.0.0', PORT))
-            self.server_socket.listen(1)
-            self.running = True
-            self.thread = threading.Thread(target=self.accept_connections, daemon=True)
-            self.thread.start()
-            print(f"✓ Servidor receptor iniciado en puerto {PORT}")
-            print(f"✓ Escuchando en todas las interfaces de red")
-        except Exception as e:
-            print(f"❌ Error iniciando servidor: {e}")
-            self.app_queue.put(("error", f"Error de servidor: {e}"))
-
-    def accept_connections(self):
-        while self.running:
-            try:
-                self.server_socket.settimeout(1.0)
-                client_socket, addr = self.server_socket.accept()
-                print(f"Conexión desde {addr}")
-                self.handle_client(client_socket)
-            except socket.timeout:
-                continue
-            except Exception as e:
-                if self.running:
-                    print(f"Error aceptando conexión: {e}")
-
-    def handle_client(self, client_socket):
-        try:
-            # Recibir tamaño del mensaje
-            data = b""
-            payload_size = struct.calcsize("Q")
-            
-            while len(data) < payload_size:
-                packet = client_socket.recv(4096)
-                if not packet:
-                    break
-                data += packet
-            
-            packed_msg_size = data[:payload_size]
-            data = data[payload_size:]
-            msg_size = struct.unpack("Q", packed_msg_size)[0]
-            
-            # Recibir imagen
-            while len(data) < msg_size:
-                data += client_socket.recv(4096)
-            
-            frame_data = data[:msg_size]
-            image = pickle.loads(frame_data)
-            
-            self.app_queue.put(("received_image", image))
-            print("✓ Imagen recibida")
-            
-        except Exception as e:
-            print(f"Error recibiendo imagen: {e}")
-        finally:
-            client_socket.close()
-
-    def stop(self):
-        self.running = False
-        if self.server_socket:
-            self.server_socket.close()
-
-# --- CLIENTE DE TRANSFERENCIA ---
-class TransferClient:
-    @staticmethod
-    def send_image(image_pil):
-        try:
-            client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client_socket.connect((RECEIVER_IP, PORT))
-            
-            # Serializar imagen
-            image_bytes = pickle.dumps(image_pil)
-            message_size = struct.pack("Q", len(image_bytes))
-            
-            client_socket.sendall(message_size + image_bytes)
-            client_socket.close()
-            print("✓ Imagen enviada")
-            return True
-        except Exception as e:
-            print(f"Error enviando imagen: {e}")
-            return False
-
-# --- APLICACIÓN PRINCIPAL ---
-class HarmonyOSApp:
-    def __init__(self, mode="sender"):
-        self.mode = mode  # "sender" o "receiver"
+# --- CLASE PRINCIPAL ---
+class App:
+    def __init__(self, mode):
+        self.mode = mode
         self.root = tk.Tk()
-        self.root.title(f"HarmonyOS {'Emisor' if mode == 'sender' else 'Receptor'}")
+        self.root.title(f"HarmonyOS - {mode.upper()}")
         self.root.configure(bg=COLOR_BG)
         
-        # Variables de estado
-        self.image_grabbed = False
-        self.selected_pil_image = None
+        # ESTADOS LÓGICOS
+        self.current_image = None
         self.wobble_phase = 0
-        self.gallery_images = []
-        self.transfer_animation_phase = 0
+        self.glow_phase = 0
         
-        self.app_queue = queue.Queue()
+        # ESTADOS DE INTERACCIÓN
+        self.is_grabbing = False    # Emisor: Puño cerrado
+        self.is_preparing = False   # Emisor: Palma abierta (Previa)
+        self.sender_done = False    # Emisor: Ya envió
         
-        if mode == "sender":
-            self.setup_sender_ui()
-            self.gesture_control = GestureController(self.app_queue)
-            self.gesture_control.start()
-        else:
-            self.setup_receiver_ui()
-            self.server = TransferServer(self.app_queue)
-            self.server.start()
+        self.rx_buffer = None       # Receptor: Imagen recibida
+        self.rx_state = "WAITING"   # WAITING -> READY_TO_REVEAL -> REVEALING -> DONE
+        self.rx_reveal_progress = 0.0
         
-        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-        self.process_queue()
+        self.gallery_visible = False
+        self.history_visible = False
+        
+        # RECURSOS
+        self.custom_icon = load_icon_image(size=(100, 100))
+        self.cloud_particles = []
+        for _ in range(30):
+            self.cloud_particles.append({
+                'x': 200 + random.randint(-80, 80), 'y': 250 + random.randint(-80, 80),
+                'r': random.randint(15, 45), 'dx': random.uniform(-0.8, 0.8), 'dy': random.uniform(-0.8, 0.8),
+                # Eliminamos 'opacity' complejo para evitar errores de Tkinter
+                'color': random.choice([COLOR_ACCENT, "#4cc9f0", "#4895ef"]) 
+            })
 
-    def setup_sender_ui(self):
-        self.root.geometry("1200x750")
+        # GESTOS Y RED
+        self.queue = queue.Queue()
+        self.running = True
+        self.cap = None
+        self.mp_hands = mp.solutions.hands
+        self.hands = self.mp_hands.Hands(min_detection_confidence=0.6, min_tracking_confidence=0.5, max_num_hands=1)
+        self.last_gesture = "NINGUNO"
+        self.last_gesture_time = time.time()
         
-        # Contenedor principal con dos paneles
-        main_container = tk.Frame(self.root, bg=COLOR_BG)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # --- PANEL IZQUIERDO: Cámara y Controles ---
-        left_panel = tk.Frame(main_container, bg=COLOR_CARD, width=700, height=700)
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 10))
-        left_panel.pack_propagate(False)
-        
-        # Header
-        header = tk.Frame(left_panel, bg=COLOR_CARD, height=60)
-        header.pack(fill=tk.X, padx=20, pady=(20, 10))
-        
-        tk.Label(header, text="HarmonyOS SuperDevice", font=FONT_TITLE,
-                bg=COLOR_CARD, fg=COLOR_FG).pack(anchor="w")
-        tk.Label(header, text="Transferencia por gestos", font=FONT_BODY,
-                bg=COLOR_CARD, fg=COLOR_PLACEHOLDER).pack(anchor="w")
-        
-        # Contenedor de video/imagen
-        self.camera_container = tk.Frame(left_panel, bg=COLOR_BG, width=660, height=495)
-        self.camera_container.pack(padx=20, pady=10)
-        self.camera_container.pack_propagate(False)
-        
-        self.video_label = tk.Label(self.camera_container, bg=COLOR_BG)
-        self.video_label.place(x=0, y=0, width=660, height=495)
-        
-        self.image_overlay = tk.Label(self.camera_container, bg=COLOR_BG)
-        self.image_overlay.place(relx=0.5, rely=0.5, anchor="center")
-        
-        # Panel de estado con efecto glass
-        status_panel = tk.Frame(left_panel, bg=COLOR_GLASS, height=80)
-        status_panel.pack(fill=tk.X, padx=20, pady=(10, 20))
-        
-        self.gesture_indicator = tk.Label(status_panel, text="👋", font=("SF Pro Display", 32),
-                                         bg=COLOR_GLASS, fg=COLOR_ACCENT)
-        self.gesture_indicator.pack(side=tk.LEFT, padx=20)
-        
-        status_text_frame = tk.Frame(status_panel, bg=COLOR_GLASS)
-        status_text_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        self.status_label = tk.Label(status_text_frame, text="Selecciona una imagen de la galería",
-                                     font=FONT_STATUS, bg=COLOR_GLASS, fg=COLOR_FG, anchor="w")
-        self.status_label.pack(anchor="w", pady=(15, 5))
-        
-        self.instruction_label = tk.Label(status_text_frame, text="✊ Agarrar  •  🖐️ Soltar",
-                                         font=FONT_BODY, bg=COLOR_GLASS, fg=COLOR_PLACEHOLDER, anchor="w")
-        self.instruction_label.pack(anchor="w")
-        
-        # --- PANEL DERECHO: Galería ---
-        right_panel = tk.Frame(main_container, bg=COLOR_CARD, width=450, height=700)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(10, 0))
-        right_panel.pack_propagate(False)
-        
-        # Header de galería
-        gallery_header = tk.Frame(right_panel, bg=COLOR_CARD, height=60)
-        gallery_header.pack(fill=tk.X, padx=20, pady=(20, 10))
-        
-        tk.Label(gallery_header, text="Galería", font=FONT_SUBTITLE,
-                bg=COLOR_CARD, fg=COLOR_FG).pack(anchor="w")
-        
-        # Scroll de galería
-        canvas = tk.Canvas(right_panel, bg=COLOR_CARD, highlightthickness=0)
-        scrollbar = tk.Scrollbar(right_panel, orient="vertical", command=canvas.yview,
-                                bg=COLOR_CARD, troughcolor=COLOR_BG)
-        self.gallery_frame = tk.Frame(canvas, bg=COLOR_CARD)
-        
-        self.gallery_frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
-        canvas.create_window((0, 0), window=self.gallery_frame, anchor="nw", width=410)
-        canvas.configure(yscrollcommand=scrollbar.set)
-        
-        canvas.pack(side="left", fill="both", expand=True, padx=(20, 0))
-        scrollbar.pack(side="right", fill="y", padx=(0, 20))
-        
-        self.load_gallery()
-
-    def setup_receiver_ui(self):
-        self.root.geometry("500x750")
-        
-        # Contenedor principal
-        main_container = tk.Frame(self.root, bg=COLOR_BG)
-        main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
-        
-        # Panel receptor
-        receiver_panel = tk.Frame(main_container, bg=COLOR_CARD)
-        receiver_panel.pack(fill=tk.BOTH, expand=True)
-        
-        # Header
-        header = tk.Frame(receiver_panel, bg=COLOR_CARD, height=80)
-        header.pack(fill=tk.X, padx=30, pady=(30, 20))
-        
-        tk.Label(header, text="Dispositivo Receptor", font=FONT_TITLE,
-                bg=COLOR_CARD, fg=COLOR_FG).pack(anchor="w")
-        tk.Label(header, text="Esperando transferencia...", font=FONT_BODY,
-                bg=COLOR_CARD, fg=COLOR_PLACEHOLDER).pack(anchor="w", pady=(5, 0))
-        
-        # Área de recepción
-        self.receiver_area = tk.Frame(receiver_panel, bg=COLOR_BG, width=440, height=550)
-        self.receiver_area.pack(padx=30, pady=20)
-        self.receiver_area.pack_propagate(False)
-        
-        # Placeholder animado
-        self.receiver_placeholder = tk.Frame(self.receiver_area, bg=COLOR_BG)
-        self.receiver_placeholder.place(relx=0.5, rely=0.5, anchor="center")
-        
-        self.placeholder_icon = tk.Label(self.receiver_placeholder, text="📱", font=("SF Pro Display", 64),
-                                        bg=COLOR_BG, fg=COLOR_PLACEHOLDER)
-        self.placeholder_icon.pack()
-        
-        tk.Label(self.receiver_placeholder, text="Listo para recibir", font=FONT_SUBTITLE,
-                bg=COLOR_BG, fg=COLOR_PLACEHOLDER).pack(pady=(10, 0))
-        
-        self.receiver_image_label = tk.Label(self.receiver_area, bg=COLOR_BG)
-        self.receiver_image_label.place(relx=0.5, rely=0.5, anchor="center")
-        
-        self.animate_receiver_placeholder()
-
-    def load_gallery(self):
-        row, col = 0, 0
-        img_size = 120
-        
-        for filename in sorted(os.listdir(GALLERY_DIR)):
-            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
-                filepath = os.path.join(GALLERY_DIR, filename)
-                
-                try:
-                    img_pil = Image.open(filepath)
-                    img_pil.thumbnail((img_size, img_size), Image.Resampling.LANCZOS)
-                    
-                    # Crear thumbnail con bordes redondeados y sombra
-                    img_rounded = self.create_rounded_thumbnail(img_pil, 15)
-                    img_tk = ImageTk.PhotoImage(img_rounded)
-                    
-                    # Contenedor para efecto hover
-                    btn_container = tk.Frame(self.gallery_frame, bg=COLOR_CARD, 
-                                            highlightthickness=2, highlightbackground=COLOR_BG)
-                    btn_container.grid(row=row, column=col, padx=8, pady=8)
-                    
-                    btn = tk.Label(btn_container, image=img_tk, bg=COLOR_CARD, cursor="hand2")
-                    btn.image = img_tk
-                    btn.pack()
-                    
-                    # Bind events
-                    btn.bind("<Button-1>", lambda e, p=filepath: self.select_image(p))
-                    btn.bind("<Enter>", lambda e, c=btn_container: c.configure(highlightbackground=COLOR_ACCENT))
-                    btn.bind("<Leave>", lambda e, c=btn_container: c.configure(highlightbackground=COLOR_BG))
-                    
-                    col += 1
-                    if col > 2:
-                        col = 0
-                        row += 1
-                        
-                except Exception as e:
-                    print(f"Error cargando {filename}: {e}")
-
-    def create_rounded_thumbnail(self, img_pil, radius):
-        # Crear máscara con bordes redondeados
-        mask = Image.new('L', img_pil.size, 0)
-        draw = ImageDraw.Draw(mask)
-        draw.rounded_rectangle((0, 0) + img_pil.size, radius, fill=255)
-        
-        # Aplicar máscara
-        output = ImageOps.fit(img_pil, img_pil.size, centering=(0.5, 0.5))
-        output.putalpha(mask)
-        
-        # Crear imagen final con fondo
-        final = Image.new("RGBA", img_pil.size, COLOR_CARD)
-        final.paste(output, (0, 0), output)
-        
-        return final.convert("RGB")
-
-    def select_image(self, path):
-        try:
-            self.selected_pil_image = Image.open(path)
-            # Mantener relación de aspecto
-            self.selected_pil_image.thumbnail((400, 400), Image.Resampling.LANCZOS)
-            
-            # Crear versión con bordes redondeados
-            img_rounded = self.create_rounded_thumbnail(self.selected_pil_image, 20)
-            img_tk = ImageTk.PhotoImage(img_rounded)
-            
-            self.image_overlay.config(image=img_tk)
-            self.image_overlay.image = img_tk
-            
-            self.status_label.config(text="Imagen seleccionada - Usa gestos para transferir")
-            self.gesture_indicator.config(text="👌", fg=COLOR_SUCCESS)
-            
-        except Exception as e:
-            print(f"Error seleccionando imagen: {e}")
-
-    def process_queue(self):
-        try:
-            while True:
-                msg = self.app_queue.get_nowait()
-                
-                if msg[0] == "video_frame":
-                    frame = msg[1]
-                    frame_resized = cv2.resize(frame, (660, 495))
-                    img_pil = Image.fromarray(cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB))
-                    img_tk = ImageTk.PhotoImage(image=img_pil)
-                    self.video_label.configure(image=img_tk)
-                    self.video_label.image = img_tk
-                
-                elif msg[0] == "gesture":
-                    self.handle_gesture(msg[1], msg[2] if len(msg) > 2 else None)
-                
-                elif msg[0] == "received_image":
-                    self.display_received_image(msg[1])
-                
-                elif msg[0] == "error":
-                    self.status_label.config(text=f"Error: {msg[1]}", fg=COLOR_ERROR)
-        
-        except queue.Empty:
-            pass
-        
-        # Aplicar efecto wobble si la imagen está agarrada
-        if self.mode == "sender" and self.image_grabbed and self.selected_pil_image:
-            self.apply_wobble_effect()
-        
-        self.root.after(16, self.process_queue)
-
-    def handle_gesture(self, gesture, hand_pos):
-        if not self.selected_pil_image:
-            return
-        
-        if gesture == "PUÑO" and not self.image_grabbed:
-            self.image_grabbed = True
-            self.status_label.config(text="¡Imagen agarrada! Mueve tu mano para soltar")
-            self.gesture_indicator.config(text="✊", fg=COLOR_ACCENT)
-            
-        elif gesture == "PALMA" and self.image_grabbed:
-            self.image_grabbed = False
-            self.status_label.config(text="Transfiriendo imagen...")
-            self.gesture_indicator.config(text="📤", fg=COLOR_SUCCESS)
-            
-            # Iniciar transferencia en hilo separado
-            threading.Thread(target=self.transfer_image, daemon=True).start()
-
-    def transfer_image(self):
-        if TransferClient.send_image(self.selected_pil_image):
-            self.root.after(0, lambda: self.status_label.config(
-                text="✓ Imagen transferida exitosamente", fg=COLOR_SUCCESS))
-            self.root.after(0, lambda: self.gesture_indicator.config(text="✅"))
-            
-            # Resetear después de 2 segundos
-            self.root.after(2000, self.reset_state)
-        else:
-            self.root.after(0, lambda: self.status_label.config(
-                text="✗ Error en la transferencia", fg=COLOR_ERROR))
-
-    def reset_state(self):
-        self.image_overlay.config(image=None)
-        self.image_overlay.image = None
-        self.selected_pil_image = None
-        self.status_label.config(text="Selecciona otra imagen", fg=COLOR_FG)
-        self.gesture_indicator.config(text="👋", fg=COLOR_ACCENT)
-
-    def apply_wobble_effect(self):
-        if not self.selected_pil_image:
-            return
-        
-        try:
-            img_array = np.array(self.selected_pil_image)
-            rows, cols = img_array.shape[:2]
-            
-            # Crear mapas de distorsión
-            map_x = np.zeros((rows, cols), dtype=np.float32)
-            map_y = np.zeros((rows, cols), dtype=np.float32)
-            
-            self.wobble_phase += 0.3
-            
-            for i in range(rows):
-                for j in range(cols):
-                    offset_x = int(8.0 * np.sin(2.0 * np.pi * i / 120 + self.wobble_phase))
-                    offset_y = int(5.0 * np.cos(2.0 * np.pi * j / 120 + self.wobble_phase))
-                    
-                    map_x[i, j] = j + offset_x
-                    map_y[i, j] = i + offset_y
-            
-            # Aplicar distorsión
-            distorted = cv2.remap(img_array, map_x, map_y, interpolation=cv2.INTER_LINEAR)
-            img_pil = Image.fromarray(distorted)
-            
-            # Aplicar bordes redondeados
-            img_rounded = self.create_rounded_thumbnail(img_pil, 20)
-            img_tk = ImageTk.PhotoImage(img_rounded)
-            
-            self.image_overlay.config(image=img_tk)
-            self.image_overlay.image = img_tk
-            
-        except Exception as e:
-            print(f"Error en wobble: {e}")
-
-    def display_received_image(self, image_pil):
-        try:
-            # Ocultar placeholder
-            self.receiver_placeholder.place_forget()
-            
-            # Mostrar imagen con animación
-            image_pil.thumbnail((420, 530), Image.Resampling.LANCZOS)
-            img_rounded = self.create_rounded_thumbnail(image_pil, 20)
-            
-            # Efecto de aparición con blur
-            img_tk = ImageTk.PhotoImage(img_rounded)
-            self.receiver_image_label.config(image=img_tk)
-            self.receiver_image_label.image = img_tk
-            
-            print("✓ Imagen mostrada en receptor")
-            
-        except Exception as e:
-            print(f"Error mostrando imagen: {e}")
-
-    def animate_receiver_placeholder(self):
-        if self.mode == "receiver":
-            # Animación de pulso para el placeholder
-            current_color = self.placeholder_icon.cget("fg")
-            new_color = COLOR_ACCENT if current_color == COLOR_PLACEHOLDER else COLOR_PLACEHOLDER
-            self.placeholder_icon.config(fg=new_color)
-            self.root.after(1000, self.animate_receiver_placeholder)
-
-    def on_closing(self):
-        print("Cerrando aplicación...")
         if self.mode == "sender":
-            self.gesture_control.stop()
+            self.start_camera()
         else:
-            self.server.stop()
-        self.root.destroy()
+            self.start_server()
 
-    def run(self):
+        self.setup_ui()
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
+        self.process_loop()
         self.root.mainloop()
 
-# --- EJECUTAR ---
+    # --- CÁMARA ---
+    def start_camera(self):
+        if self.cap is None:
+            self.cap = cv2.VideoCapture(0)
+            threading.Thread(target=self.camera_loop, daemon=True).start()
+
+    def stop_camera(self):
+        if self.cap:
+            self.cap.release()
+            self.cap = None
+
+    def camera_loop(self):
+        while self.running:
+            if self.cap and self.cap.isOpened():
+                ret, frame = self.cap.read()
+                if ret:
+                    frame = cv2.flip(frame, 1)
+                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                    results = self.hands.process(rgb)
+                    
+                    gesture = "NINGUNO"
+                    if results.multi_hand_landmarks:
+                        gesture = self.classify_gesture(results.multi_hand_landmarks[0])
+                    
+                    if gesture != self.last_gesture:
+                        if time.time() - self.last_gesture_time > 0.15:
+                            self.last_gesture = gesture
+                            self.last_gesture_time = time.time()
+                            self.queue.put(("gesture", gesture))
+            else:
+                time.sleep(0.5)
+            time.sleep(0.03)
+
+    def classify_gesture(self, landmarks):
+        count = 0
+        for tip, pip in [(8,6), (12,10), (16,14), (20,18)]:
+            if landmarks.landmark[tip].y < landmarks.landmark[pip].y:
+                count += 1
+        if count >= 3: return "PALMA"
+        if count == 0: return "PUÑO"
+        return "NINGUNO"
+
+    # --- RED ---
+    def start_server(self):
+        self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        try:
+            self.server_sock.bind(('0.0.0.0', PORT))
+            self.server_sock.listen(1)
+            print(f"[Sistema] Receptor listo en puerto {PORT}")
+            threading.Thread(target=self.server_loop, daemon=True).start()
+        except Exception as e:
+            print(f"[Error] Server: {e}")
+
+    def server_loop(self):
+        while self.running:
+            try:
+                conn, addr = self.server_sock.accept()
+                self.handle_client(conn)
+            except: pass
+
+    def handle_client(self, conn):
+        try:
+            raw_size = self.recvall(conn, struct.calcsize("Q"))
+            if not raw_size: return
+            size = struct.unpack("Q", raw_size)[0]
+            data = self.recvall(conn, size)
+            if data:
+                image = pickle.loads(data)
+                self.queue.put(("received_image", image))
+        except: pass
+        finally: conn.close()
+
+    def recvall(self, sock, n):
+        data = b''
+        while len(data) < n:
+            packet = sock.recv(n - len(data))
+            if not packet: return None
+            data += packet
+        return data
+
+    def send_image(self):
+        def _send():
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((RECEIVER_IP, PORT))
+                data = pickle.dumps(self.current_image)
+                sock.sendall(struct.pack("Q", len(data)) + data)
+                sock.close()
+                print("[Emisor] Imagen enviada con éxito.")
+            except:
+                print("[Emisor] Error al conectar.")
+        threading.Thread(target=_send, daemon=True).start()
+
+    # --- UI ---
+    def setup_ui(self):
+        if self.mode == "sender":
+            w, h = 700, 650
+            center_window(self.root, w, h)
+            self.root.columnconfigure(0, weight=1)
+            self.root.columnconfigure(1, weight=0, minsize=0)
+            self.root.rowconfigure(0, weight=1)
+            self.root.resizable(False, False)
+
+            self.panel_view = tk.Frame(self.root, bg=COLOR_PANEL)
+            self.panel_view.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=15, pady=15)
+            
+            header = tk.Frame(self.panel_view, bg=COLOR_PANEL, height=70)
+            header.pack(fill=tk.X, padx=20, pady=(20, 10))
+            header.pack_propagate(False)
+            
+            self.btn_hamburger = tk.Button(header, text="☰", font=FONT_HAMBURGER, bg=COLOR_PANEL, fg=COLOR_ACCENT, bd=0, cursor="hand2", command=self.toggle_gallery)
+            self.btn_hamburger.pack(side="right", padx=10)
+            tk.Label(header, text="📤 EMISOR", font=FONT_TITLE, bg=COLOR_PANEL, fg=COLOR_ACCENT).pack(anchor="w")
+            tk.Label(header, text="Gestos: Palma (Prep) -> Puño (Agarra) -> Palma (Envía)", font=("SF Pro Text", 10), bg=COLOR_PANEL, fg=COLOR_TEXT_DIM).pack(anchor="w", pady=(2,0))
+
+            self.img_container = tk.Frame(self.panel_view, bg=COLOR_PANEL_LIGHT, highlightbackground=COLOR_ACCENT, highlightthickness=2)
+            self.img_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 20))
+            self.img_container.pack_propagate(False)
+            
+            self.lbl_image = tk.Label(self.img_container, bg=COLOR_PANEL_LIGHT)
+            self.lbl_image.place(relx=0.5, rely=0.5, anchor="center", relwidth=1.0, relheight=1.0)
+            
+            self.lbl_icon = tk.Label(self.img_container, bg=COLOR_PANEL_LIGHT, text="📡", font=("Segoe UI Emoji", 40), fg=COLOR_ACCENT)
+            if self.custom_icon:
+                self.lbl_icon.configure(image=self.custom_icon, text="")
+                self.lbl_icon.image = self.custom_icon
+
+            self.panel_gallery = tk.Frame(self.root, bg=COLOR_PANEL_LIGHT, width=280)
+            self.setup_gallery_ui(self.panel_gallery, GALLERY_DIR, self.select_sender_image, "🖼️ Galería")
+            self.update_viewport(None)
+
+        else:
+            w, h = 550, 700
+            center_window(self.root, w, h)
+            self.root.columnconfigure(0, weight=1)
+            self.root.columnconfigure(1, weight=0, minsize=0)
+            self.root.rowconfigure(0, weight=1)
+            self.root.resizable(False, False)
+
+            self.frame_rx = tk.Frame(self.root, bg=COLOR_PANEL)
+            self.frame_rx.grid(row=0, column=0, columnspan=2, sticky="nsew", padx=15, pady=15)
+            
+            header = tk.Frame(self.frame_rx, bg=COLOR_PANEL, height=90)
+            header.pack(fill=tk.X, padx=25, pady=(25, 15))
+            header.pack_propagate(False)
+            
+            self.btn_hamburger = tk.Button(header, text="☰", font=FONT_HAMBURGER, bg=COLOR_PANEL, fg=COLOR_ACCENT, bd=0, cursor="hand2", command=self.toggle_history)
+            self.btn_hamburger.pack(side="right", padx=10)
+            tk.Label(header, text="📥 RECEPTOR", font=FONT_TITLE, bg=COLOR_PANEL, fg=COLOR_ACCENT).pack(anchor="w")
+            self.lbl_status = tk.Label(header, text="Esperando conexión...", font=FONT_STATUS, bg=COLOR_PANEL, fg=COLOR_TEXT_DIM)
+            self.lbl_status.pack(anchor="w", pady=(8,0))
+            
+            view_area = tk.Frame(self.frame_rx, bg=COLOR_PANEL_LIGHT, highlightbackground=COLOR_ACCENT_2, highlightthickness=2)
+            view_area.pack(fill=tk.BOTH, expand=True, padx=25, pady=(10, 25))
+            
+            self.container = tk.Frame(view_area, bg=COLOR_PANEL_LIGHT)
+            self.container.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+            
+            self.lbl_rx_icon = tk.Label(self.container, bg=COLOR_PANEL_LIGHT, text="📡", font=("Segoe UI Emoji", 40), fg=COLOR_ACCENT)
+            if self.custom_icon:
+                self.lbl_rx_icon.configure(image=self.custom_icon, text="")
+                self.lbl_rx_icon.image = self.custom_icon
+                
+            self.cv_cloud = tk.Canvas(self.container, bg=COLOR_PANEL_LIGHT, highlightthickness=0)
+            self.lbl_rx_img = tk.Label(self.container, bg=COLOR_PANEL_LIGHT)
+            self.lbl_rx_img.place(relx=0.5, rely=0.5, anchor="center")
+
+            self.panel_history = tk.Frame(self.root, bg=COLOR_PANEL_LIGHT, width=220)
+            self.setup_gallery_ui(self.panel_history, RECEIVED_DIR, None, "📚 Historial")
+
+    def setup_gallery_ui(self, parent, path, callback, title):
+        parent.pack_propagate(False)
+        header = tk.Frame(parent, bg=COLOR_PANEL_LIGHT, height=70)
+        header.pack(fill=tk.X, padx=15, pady=(20, 10))
+        header.pack_propagate(False)
+        
+        cmd = self.toggle_gallery if self.mode == "sender" else self.toggle_history
+        tk.Button(header, text="✕", font=("SF Pro Display", 20, "bold"), bg=COLOR_PANEL_LIGHT, fg=COLOR_ACCENT, bd=0, cursor="hand2", command=cmd).pack(side="right", padx=5)
+        tk.Label(header, text=title, font=FONT_TITLE, bg=COLOR_PANEL_LIGHT, fg=COLOR_TEXT).pack(anchor="w")
+        
+        canvas = tk.Canvas(parent, bg=COLOR_PANEL_LIGHT, highlightthickness=0)
+        scroll = tk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        self.frm_thumbs = tk.Frame(canvas, bg=COLOR_PANEL_LIGHT)
+        
+        self.frm_thumbs.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.create_window((0,0), window=self.frm_thumbs, anchor="nw", width=parent.winfo_reqwidth()-20)
+        canvas.configure(yscrollcommand=scroll.set)
+        
+        canvas.pack(side="left", fill="both", expand=True)
+        scroll.pack(side="right", fill="y")
+        self.load_gallery_content(path, callback)
+
+    def load_gallery_content(self, directory, callback):
+        for widget in self.frm_thumbs.winfo_children(): widget.destroy()
+        if not os.path.exists(directory): return
+        
+        files = sorted([f for f in os.listdir(directory) if f.lower().endswith(('.png', '.jpg', '.jpeg'))], reverse=True)
+        row, col = 0, 0
+        for f in files:
+            try:
+                path = os.path.join(directory, f)
+                img = Image.open(path)
+                img = ImageOps.fit(img, (80, 80), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+                btn = tk.Button(self.frm_thumbs, image=photo, bg=COLOR_PANEL, bd=0, cursor="hand2", command=lambda p=path: callback(p)) if callback else tk.Label(self.frm_thumbs, image=photo, bg=COLOR_PANEL, bd=2)
+                btn.image = photo
+                btn.grid(row=row, column=col, padx=8, pady=8)
+                col += 1
+                if col > 1: col=0; row+=1
+            except: pass
+
+    # --- LÓGICA ---
+    def select_sender_image(self, path):
+        img = Image.open(path)
+        self.current_image = resize_image_smart(img, MAX_IMG_SIZE)
+        self.is_grabbing = False
+        self.is_preparing = False
+        self.sender_done = False
+        self.start_camera() 
+        self.update_viewport(self.current_image)
+        print("[Emisor] Imagen seleccionada.")
+
+    def update_viewport(self, pil_img):
+        if self.mode == "sender":
+            w = self.img_container.winfo_width() or 600
+            h = self.img_container.winfo_height() or 500
+            if pil_img is None:
+                tk_img = ImageTk.PhotoImage(create_checkered_bg(w, h))
+            else:
+                img_copy = pil_img.copy()
+                img_copy.thumbnail((w, h), Image.Resampling.LANCZOS)
+                tk_img = ImageTk.PhotoImage(img_copy)
+            self.lbl_image.configure(image=tk_img)
+            self.lbl_image.image = tk_img
+
+    def process_loop(self):
+        try:
+            while True:
+                msg = self.queue.get_nowait()
+                if msg[0] == "gesture":
+                    self.handle_gesture(msg[1])
+                elif msg[0] == "received_image":
+                    self.rx_buffer = resize_image_smart(msg[1], MAX_IMG_SIZE)
+                    self.rx_state = "READY_TO_REVEAL"
+                    self.lbl_status.config(text="✓ Recibido - Haz gestos", fg=COLOR_SUCCESS)
+                    self.start_camera()
+        except queue.Empty: pass
+
+        self.animate_ui()
+        self.root.after(30, self.process_loop)
+
+    def animate_ui(self):
+        # --- EMISOR ---
+        if self.mode == "sender" and self.current_image:
+            if self.sender_done:
+                self.lbl_icon.place_forget()
+                self.update_viewport(self.current_image)
+            elif self.is_grabbing:
+                self.lbl_icon.place_forget()
+                liq = self.apply_liquid(self.current_image, 1.5, 0.85, True)
+                self.update_viewport(liq)
+            elif self.is_preparing:
+                self.lbl_icon.place(relx=0.5, y=30, anchor="n")
+                self.lbl_icon.lift()
+                self.update_viewport(self.current_image)
+            else:
+                self.lbl_icon.place_forget()
+
+        # --- RECEPTOR ---
+        if self.mode == "receiver":
+            if self.cv_cloud.winfo_ismapped():
+                self.cv_cloud.delete("all")
+                for p in self.cloud_particles:
+                    p['x'] += p['dx']; p['y'] += p['dy']
+                    if p['x'] < 120 or p['x'] > 280: p['dx'] *= -1
+                    if p['y'] < 180 or p['y'] > 320: p['dy'] *= -1
+                    self.cv_cloud.create_oval(p['x']-p['r'], p['y']-p['r'], p['x']+p['r'], p['y']+p['r'], fill=p['color'], outline="")
+
+            if self.rx_state == "REVEALING" and self.rx_reveal_progress < 1.0:
+                self.rx_reveal_progress += 0.03
+                sc = 0.1 + (0.9 * self.rx_reveal_progress)
+                dist = 1.0 - self.rx_reveal_progress
+                img_anim = self.apply_liquid(self.rx_buffer, dist, sc, True)
+                tk_img = ImageTk.PhotoImage(img_anim)
+                self.lbl_rx_img.configure(image=tk_img)
+                self.lbl_rx_img.image = tk_img
+                if self.rx_reveal_progress >= 1.0:
+                    self.rx_state = "DONE"
+                    self.save_received_image()
+
+    def apply_liquid(self, img, intensity, scale, animate):
+        if not img: return None
+        arr = np.array(img)
+        rows, cols = arr.shape[:2]
+        if animate: self.wobble_phase += 0.5
+        amp_x, Y, X = 10.0 * intensity, *np.indices((rows, cols))
+        map_x = X + amp_x * np.sin(Y/30.0 + self.wobble_phase)
+        map_y = Y + amp_x * np.cos(X/30.0 + self.wobble_phase)
+        dist = cv2.remap(arr, map_x.astype(np.float32), map_y.astype(np.float32), cv2.INTER_LINEAR, borderValue=(26, 31, 58))
+        res = Image.fromarray(dist)
+        if scale < 1.0:
+            new_w, new_h = int(cols*scale), int(rows*scale)
+            if new_w > 0 and new_h > 0:
+                res = res.resize((new_w, new_h), Image.Resampling.LANCZOS)
+                bg = Image.new("RGB", (cols, rows), COLOR_PANEL_LIGHT)
+                bg.paste(res, ((cols-new_w)//2, (rows-new_h)//2))
+                return bg
+        return res
+
+    def handle_gesture(self, gesture):
+        # EMISOR
+        if self.mode == "sender" and self.current_image and not self.sender_done:
+            if gesture == "PALMA":
+                if not self.is_grabbing:
+                    self.is_preparing = True
+            elif gesture == "PUÑO":
+                if self.is_preparing:
+                    self.is_grabbing = True
+                    self.is_preparing = False
+                    self.sender_done = True
+                    print("[Emisor] Enviando imagen...")
+                    self.send_image()
+                    self.stop_camera()
+
+        # RECEPTOR
+        if self.mode == "receiver" and self.rx_buffer and self.rx_state != "DONE":
+            if gesture == "PUÑO":
+                # MOSTRAR ICONOS Y TEXTO "ESPERANDO"
+                self.lbl_rx_icon.place(relx=0.5, y=60, anchor="n")
+                self.cv_cloud.place(relx=0.5, rely=0.5, anchor="center", width=400, height=500)
+                self.lbl_rx_icon.lift()
+                self.lbl_status.config(text="Esperando a recibir imagen", fg=COLOR_TEXT_DIM)
+            
+            elif gesture == "PALMA":
+                # OCULTAR ICONOS Y CAMBIAR A "RECIBIENDO"
+                self.lbl_rx_icon.place_forget()
+                self.cv_cloud.place_forget()
+                self.lbl_status.config(text="Recibiendo imagen...", fg=COLOR_ACCENT)
+                self.rx_state = "REVEALING"
+            
+            else:
+                if self.rx_state != "REVEALING":
+                    self.lbl_rx_icon.place_forget()
+                    self.cv_cloud.place_forget()
+
+    def save_received_image(self):
+        self.lbl_status.config(text="✓ Guardado", fg=COLOR_SUCCESS)
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        path = os.path.join(RECEIVED_DIR, f"rx_{ts}.jpg")
+        self.rx_buffer.save(path)
+        self.load_gallery_content(RECEIVED_DIR, None) 
+        self.root.after(3000, self.reset_receiver)
+
+    def reset_receiver(self):
+        self.rx_buffer = None
+        self.rx_state = "WAITING"
+        self.rx_reveal_progress = 0.0
+        self.lbl_rx_img.configure(image='')
+        self.stop_camera()
+        self.lbl_status.config(text="Esperando conexión...", fg=COLOR_TEXT_DIM)
+
+    def toggle_gallery(self):
+        self.gallery_visible = not self.gallery_visible
+        if self.gallery_visible:
+            self.panel_view.grid(row=0, column=0, sticky="nsew")
+            self.panel_gallery.grid(row=0, column=1, sticky="nsew")
+            self.btn_hamburger.config(text="✕")
+        else:
+            self.panel_gallery.grid_forget()
+            self.panel_view.grid(row=0, column=0, columnspan=2, sticky="nsew")
+            self.btn_hamburger.config(text="☰")
+
+    def toggle_history(self):
+        self.history_visible = not self.history_visible
+        if self.history_visible:
+            self.frame_rx.grid(row=0, column=0, sticky="nsew")
+            self.panel_history.grid(row=0, column=1, sticky="nsew")
+            self.btn_hamburger.config(text="✕")
+        else:
+            self.panel_history.grid_forget()
+            self.frame_rx.grid(row=0, column=0, columnspan=2, sticky="nsew")
+            self.btn_hamburger.config(text="☰")
+
+    def close(self):
+        self.running = False
+        self.stop_camera()
+        if hasattr(self, 'server_sock'): self.server_sock.close()
+        self.root.destroy()
+
 if __name__ == "__main__":
     import sys
-    
-    print("=" * 50)
-    print("HarmonyOS SuperDevice - Transferencia por Gestos")
-    print("=" * 50)
-    
-    if len(sys.argv) > 1 and sys.argv[1] == "receiver":
-        print("\n🔵 MODO RECEPTOR")
-        print(f"✓ Escuchando en puerto {PORT}")
-        print("✓ Esperando conexiones entrantes...")
-        print("\n💡 En el EMISOR, usa esta IP para conectar:")
-        
-        # Mostrar IPs disponibles
-        import socket as sock
-        hostname = sock.gethostname()
-        local_ip = sock.gethostbyname(hostname)
-        print(f"   IP Local: {local_ip}")
-        print(f"   O configura: export RECEIVER_IP={local_ip}")
-        
-        app = HarmonyOSApp(mode="receiver")
-    else:
-        print("\n🟠 MODO EMISOR")
-        print(f"✓ Conectará al receptor en: {RECEIVER_IP}:{PORT}")
-        print("\n💡 INSTRUCCIONES:")
-        print("  1. Primero inicia el RECEPTOR en otra máquina:")
-        print("     python app.py receiver")
-        print("\n  2. Configura la IP del RECEPTOR aquí:")
-        print("     • Opción A - Variable de entorno:")
-        print("       Windows: set RECEIVER_IP=192.168.1.XXX")
-        print("       Linux/Mac: export RECEIVER_IP=192.168.1.XXX")
-        print("     • Opción B - Editar el código (línea 33):")
-        print("       RECEIVER_IP = '192.168.1.XXX'")
-        print("\n  3. Ejecuta este emisor: python app.py")
-        
-        app = HarmonyOSApp(mode="sender")
-    
-    app.run()
+    mode = "sender"
+    if len(sys.argv) > 1: mode = sys.argv[1]
+    App(mode)
