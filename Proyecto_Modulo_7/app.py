@@ -3,27 +3,31 @@ from tkinter import ttk, messagebox
 import joblib
 import os 
 import translators as ts 
+import threading
 
-# --- 1. CONFIGURACIÓN DE ESTILO ---
-COLOR_BG = "#1e1e1e"
-COLOR_CARD = "#2c2c2c"
-COLOR_FG = "#ffffff"
-COLOR_ACCENT = "#007aff"
-COLOR_SUCCESS = "#34c759"
-COLOR_ERROR = "#ff3b30"
-COLOR_WARNING = "#ff9500"
-COLOR_PLACEHOLDER = "#888888" # Color para el texto guía
+COLOR_BG = "#f5f7fa"
+COLOR_CARD = "#ffffff"
+COLOR_FG = "#2c3e50"
+COLOR_ACCENT = "#3498db"
+COLOR_SUCCESS = "#27ae60"
+COLOR_ERROR = "#e74c3c"
+COLOR_WARNING = "#f39c12"
+COLOR_PLACEHOLDER = "#95a5a6"
+COLOR_BORDER = "#e1e8ed"
+COLOR_BUTTON_HOVER = "#2980b9"
 
-FONT_TITLE = ("SF Pro Display", 20, "bold")
-FONT_BODY = ("SF Pro Text", 12)
-FONT_BODY_BOLD = ("SF Pro Text", 12, "bold")
-FONT_STATUS = ("SF Pro Text", 12, "bold")
-FONT_RESULT = ("SF Pro Display", 15, "bold")
+FONT_TITLE = ("Segoe UI", 24, "bold")
+FONT_SUBTITLE = ("Segoe UI", 11)
+FONT_BODY = ("Segoe UI", 11)
+FONT_BODY_BOLD = ("Segoe UI", 11, "bold")
+FONT_STATUS = ("Segoe UI", 10)
+FONT_RESULT = ("Segoe UI", 14, "bold")
 
-# ==================================================================
-# --- 2. DICCIONARIO DE TRADUCCIÓN DE GÉNEROS ---
-# (Traduce los resultados del modelo al español)
-# ==================================================================
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+MODEL_DIR = os.path.join(BASE_DIR, "models")
+MODEL_PATH = os.path.join(MODEL_DIR, "modelo_generos.joblib")
+MLB_PATH = os.path.join(MODEL_DIR, "binarizer_generos.joblib")
+
 GENRE_TRANSLATIONS = {
     "Action & Adventure": "Acción y Aventura",
     "Comedies": "Comedias",
@@ -42,17 +46,7 @@ GENRE_TRANSLATIONS = {
     "Sports Movies": "Películas de Deporte",
     "LGBTQ Movies": "Películas LGBTQ",
     "Cult Movies": "Películas de Culto",
-    # Puedes añadir más si descubres nuevos géneros
 }
-# ==================================================================
-
-# Rutas a los archivos (sin cambios)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-MODEL_DIR = os.path.join(BASE_DIR, "models")
-MODEL_PATH = os.path.join(MODEL_DIR, "modelo_generos.joblib")
-MLB_PATH = os.path.join(MODEL_DIR, "binarizer_generos.joblib")
-
-# --- 3. CLASE PRINCIPAL DE LA APLICACIÓN ---
 
 class GenreClassifierApp(tk.Tk):
     def __init__(self):
@@ -60,165 +54,154 @@ class GenreClassifierApp(tk.Tk):
         
         self.model = None
         self.mlb = None
+        self.placeholder_text = "Escribe o pega aquí la sinopsis de tu película..."
         
-        # --- 4. MEJORA UI: Texto Guía (Placeholder) ---
-        self.placeholder_text = "Pega aquí la sinopsis en español..."
+        self.title("Clasificador de Géneros de Películas")
+
+        window_width = 800
+        window_height = 650
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x = (screen_width - window_width) // 2
+        y = (screen_height - window_height) // 2
         
-        # --- Configuración de la Ventana ---
-        self.title("Módulo 7: Clasificador de Géneros de Películas")
-        self.geometry("700x540")
+        self.geometry(f"{window_width}x{window_height}+{x}+{y}")
         self.configure(bg=COLOR_BG)
         self.resizable(False, False)
         
-        # --- Estilos TTK (sin cambios) ---
+        self.configure_styles()
+        self.load_model()
+        self.create_widgets()
+        
+    def configure_styles(self):
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
-        self.style.configure(".", background=COLOR_BG, foreground=COLOR_FG, fieldbackground=COLOR_CARD, borderwidth=0, lightcolor=COLOR_CARD, darkcolor=COLOR_CARD)
+        self.style.configure(".", background=COLOR_BG, foreground=COLOR_FG, fieldbackground=COLOR_CARD, borderwidth=0)
         self.style.configure("TFrame", background=COLOR_BG)
         self.style.configure("Card.TFrame", background=COLOR_CARD, relief="flat")
         self.style.configure("TLabel", background=COLOR_BG, foreground=COLOR_FG, font=FONT_BODY)
         self.style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_FG, font=FONT_BODY)
         self.style.configure("Title.TLabel", font=FONT_TITLE, background=COLOR_BG, foreground=COLOR_FG)
-        self.style.configure("Status.TLabel", font=FONT_STATUS, background=COLOR_BG)
-        self.style.configure("Result.TLabel", font=FONT_RESULT, background=COLOR_CARD, foreground=COLOR_ACCENT)
-        self.style.configure("TButton", font=FONT_BODY_BOLD, background=COLOR_ACCENT, foreground=COLOR_FG, borderwidth=0, padding=(15, 10), relief="flat")
-        self.style.map("TButton", background=[("active", "#0056b3"), ("pressed", "#0056b3")])
-        
-        self.load_model()
-        self.create_widgets()
+        self.style.configure("Subtitle.TLabel", font=FONT_SUBTITLE, background=COLOR_BG, foreground=COLOR_PLACEHOLDER)
+        self.style.configure("Status.TLabel", font=FONT_STATUS, background=COLOR_BG, foreground=COLOR_PLACEHOLDER)
+        self.style.configure("Accent.TButton", font=FONT_BODY_BOLD, background=COLOR_ACCENT, foreground="white", borderwidth=0, padding=(20, 12), relief="flat")
+        self.style.map("Accent.TButton", background=[("active", COLOR_BUTTON_HOVER), ("pressed", COLOR_BUTTON_HOVER)])
         
     def load_model(self):
         if not os.path.exists(MODEL_PATH) or not os.path.exists(MLB_PATH):
-            messagebox.showerror("Error de Archivos", 
-                                 f"No se encontraron los archivos de modelo en '{MODEL_DIR}'.\n"
-                                 "Por favor, ejecuta el script 'entrenar.py' primero.")
-            self.after(100, self.destroy)
+            messagebox.showerror("Error", "Modelos no encontrados. Ejecuta 'entrenar.py'.")
+            self.destroy()
             return
         try:
             self.model = joblib.load(MODEL_PATH)
             self.mlb = joblib.load(MLB_PATH)
-            print("Modelo y Binarizer cargados correctamente.")
+            print("✓ Modelos cargados.")
         except Exception as e:
-            messagebox.showerror("Error al Cargar", f"No se pudieron cargar los modelos: {e}")
-            self.after(100, self.destroy)
+            messagebox.showerror("Error", f"Error al cargar modelos: {e}")
+            self.destroy()
 
     def create_widgets(self):
-        main_frame = ttk.Frame(self, padding=20)
+        main_frame = ttk.Frame(self, padding=40)
         main_frame.pack(expand=True, fill=tk.BOTH)
         
-        ttk.Label(main_frame, text="Clasificador de Géneros", style="Title.TLabel").pack(pady=(0, 20))
+        # Header
+        ttk.Label(main_frame, text="🎬 Clasificador de Géneros", style="Title.TLabel").pack()
+        ttk.Label(main_frame, text="Descubre el género con IA", style="Subtitle.TLabel").pack(pady=(5, 20))
         
+        # Input Area
         input_card = ttk.Frame(main_frame, style="Card.TFrame", padding=20)
-        input_card.pack(fill=tk.BOTH, expand=True, pady=10)
+        input_card.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
         
-        ttk.Label(input_card, text="Pega la sinopsis o trama de la película aquí:", 
-                  style="Card.TLabel", font=FONT_BODY_BOLD).pack(anchor="w", pady=(0, 10))
+        # Borde falso
+        border = tk.Frame(input_card, bg=COLOR_BORDER, padx=1, pady=1)
+        border.pack(fill=tk.BOTH, expand=True)
         
-        text_frame = ttk.Frame(input_card, style="Card.TFrame", borderwidth=1, relief="solid")
-        text_frame.pack(fill=tk.BOTH, expand=True)
+        text_area = tk.Frame(border, bg=COLOR_CARD)
+        text_area.pack(fill=tk.BOTH, expand=True)
         
-        self.plot_entry = tk.Text(text_frame, 
-                                  height=10, width=60, bg=COLOR_CARD, 
-                                  fg=COLOR_FG, font=FONT_BODY,
-                                  padx=10, pady=10, bd=0,
-                                  highlightthickness=0,
-                                  insertbackground=COLOR_FG,
-                                  wrap="word")
+        self.plot_entry = tk.Text(text_area, height=8, bg=COLOR_CARD, fg=COLOR_FG, font=FONT_BODY,
+                                  padx=15, pady=15, bd=0, highlightthickness=0, wrap="word")
         self.plot_entry.pack(fill=tk.BOTH, expand=True)
         
-        # --- 5. MEJORA UI: Lógica del Placeholder ---
         self.plot_entry.insert("1.0", self.placeholder_text)
         self.plot_entry.config(foreground=COLOR_PLACEHOLDER)
         self.plot_entry.bind("<FocusIn>", self.on_entry_click)
         self.plot_entry.bind("<FocusOut>", self.on_entry_leave)
-        # --- Fin de Mejora UI ---
         
-        self.classify_button = ttk.Button(main_frame, text="Clasificar Géneros", command=self.classify_plot)
-        self.classify_button.pack(pady=20, fill="x")
+        # Botón
+        self.classify_button = ttk.Button(main_frame, text="🔍 Clasificar", command=self.run_classification_thread, style="Accent.TButton")
+        self.classify_button.pack(fill=tk.X, pady=(0, 20))
         
+        # Resultados
         result_card = ttk.Frame(main_frame, style="Card.TFrame", padding=20)
-        result_card.pack(fill="x")
+        result_card.pack(fill=tk.X)
         
-        self.result_label = ttk.Label(result_card, text="Géneros: ...", style="Result.TLabel", wraplength=600)
-        self.result_label.pack(fill="x")
+        ttk.Label(result_card, text="Resultado:", style="Card.TLabel", font=FONT_BODY_BOLD).pack(anchor="w")
         
-        self.status_label = ttk.Label(main_frame, text="Listo para clasificar", style="Status.TLabel", anchor="center")
-        self.status_label.pack(fill=tk.X, pady=(15, 0))
+        self.result_label = tk.Label(result_card, text="Esperando...", bg=COLOR_CARD, fg=COLOR_PLACEHOLDER,
+                                     font=FONT_RESULT, wraplength=700, justify="left", anchor="w")
+        self.result_label.pack(fill="x", pady=(5, 0))
         
-        if self.model is None:
-             self.status_label.config(text="Error al cargar modelos", foreground=COLOR_ERROR)
-             self.classify_button.config(state="disabled")
+        self.status_label = ttk.Label(main_frame, text="● Listo", style="Status.TLabel")
+        self.status_label.pack(pady=(15, 0))
 
-    # --- 6. MEJORA UI: Funciones para el Placeholder ---
     def on_entry_click(self, event):
-        """Borra el placeholder cuando el usuario hace clic."""
-        current_text = self.plot_entry.get("1.0", tk.END).strip()
-        if current_text == self.placeholder_text:
+        if self.plot_entry.get("1.0", tk.END).strip() == self.placeholder_text:
             self.plot_entry.delete("1.0", tk.END)
             self.plot_entry.config(foreground=COLOR_FG)
 
     def on_entry_leave(self, event):
-        """Restaura el placeholder si el campo está vacío."""
-        current_text = self.plot_entry.get("1.0", tk.END).strip()
-        if not current_text:
+        if not self.plot_entry.get("1.0", tk.END).strip():
             self.plot_entry.insert("1.0", self.placeholder_text)
             self.plot_entry.config(foreground=COLOR_PLACEHOLDER)
-    # --- Fin de Mejora UI ---
 
-    # --- 7. LÓGICA DE CLASIFICACIÓN ACTUALIZADA ---
-    def classify_plot(self):
-        """Toma el texto en ESPAÑOL, lo traduce, predice y traduce el resultado."""
-        
-        plot_text_es = self.plot_entry.get("1.0", tk.END).strip()
-        
-        # Validación de entrada
-        if not plot_text_es or plot_text_es == self.placeholder_text:
-            self.status_label.config(text="Error: El campo de texto está vacío", foreground=COLOR_ERROR)
+    # LÓGICA DE HILOS 
+    def run_classification_thread(self):
+        plot_text = self.plot_entry.get("1.0", tk.END).strip()
+        if not plot_text or plot_text == self.placeholder_text:
+            self.status_label.config(text="✖ El campo está vacío", foreground=COLOR_ERROR)
             return
             
-        if self.model is None or self.mlb is None:
-            self.status_label.config(text="Error: Los modelos no están cargados", foreground=COLOR_ERROR)
-            return
+        # Deshabilitar botón mientras procesa
+        self.classify_button.config(state="disabled")
+        self.status_label.config(text="⏳ Procesando...", foreground=COLOR_ACCENT)
+        self.result_label.config(text="Traduciendo y analizando...", fg=COLOR_PLACEHOLDER)
+        
+        threading.Thread(target=self.classify_process, args=(plot_text,), daemon=True).start()
 
+    def classify_process(self, text_es):
         try:
-            # --- PASO A: TRADUCIR (ES -> EN) ---
-            self.status_label.config(text="Traduciendo sinopsis...", foreground=COLOR_ACCENT)
-            self.update_idletasks()
+            print("Iniciando traducción")
+            text_en = ts.translate_text(text_es, translator='google', from_language='es', to_language='en')
+            print(f"Traducción OK: {text_en[:30]}...")
+            prediction = self.model.predict([text_en])
+            genres = self.mlb.inverse_transform(prediction)
             
-            # (Usamos 'google' como motor de traducción)
-            plot_text_en = ts.translate_text(plot_text_es, from_language='es', to_language='en')
+            # Llamar a actualización de UI
+            self.after(0, self.update_ui_success, genres)
             
-            self.status_label.config(text="Clasificando...", foreground=COLOR_ACCENT)
-            self.update_idletasks() 
-            
-            # --- PASO B: PREDECIR (en inglés) ---
-            plot_text_list = [plot_text_en]
-            binary_prediction = self.model.predict(plot_text_list)
-            genres_tuple_en = self.mlb.inverse_transform(binary_prediction)
-            
-            if genres_tuple_en and genres_tuple_en[0]:
-                
-                # --- PASO C: TRADUCIR RESULTADO (EN -> ES) ---
-                genres_list_es = []
-                for genre_en in genres_tuple_en[0]:
-                    # Usamos el diccionario. Si no encuentra, usa el original en inglés.
-                    genres_list_es.append(GENRE_TRANSLATIONS.get(genre_en, genre_en))
-                
-                genres_str_es = " / ".join(genres_list_es)
-                self.result_label.config(text=f"Géneros: {genres_str_es}", foreground=COLOR_SUCCESS)
-                self.status_label.config(text="¡Clasificación completa!", foreground=COLOR_SUCCESS)
-            else:
-                self.result_label.config(text="Géneros: No se pudo determinar", foreground=COLOR_WARNING)
-                self.status_label.config(text="La sinopsis no arrojó un género claro.", foreground=COLOR_WARNING)
-
         except Exception as e:
-            # Error común: Sin internet para traducir
-            print(f"Error en traducción/predicción: {e}")
-            self.status_label.config(text="Error: No se pudo traducir. Revisa tu conexión.", foreground=COLOR_ERROR)
-            self.result_label.config(text="Géneros: ...", foreground=COLOR_ACCENT)
+            print(f"Error: {e}")
+            self.after(0, self.update_ui_error, str(e))
 
+    def update_ui_success(self, genres_tuple):
+        self.classify_button.config(state="normal")
+        
+        if genres_tuple and genres_tuple[0]:
+            genres_es = [GENRE_TRANSLATIONS.get(g, g) for g in genres_tuple[0]]
+            final_text = "  •  ".join(genres_es)
+            
+            self.result_label.config(text=final_text, fg=COLOR_SUCCESS)
+            self.status_label.config(text="✓ Clasificación exitosa", foreground=COLOR_SUCCESS)
+        else:
+            self.result_label.config(text="No se pudo determinar el género", fg=COLOR_WARNING)
+            self.status_label.config(text="⚠ Intenta con más detalles", foreground=COLOR_WARNING)
 
-# --- 4. EJECUTAR LA APLICACIÓN ---
+    def update_ui_error(self, error_msg):
+        self.classify_button.config(state="normal")
+        self.status_label.config(text="✖ Error", foreground=COLOR_ERROR)
+        self.result_label.config(text="Error de conexión o traducción.", fg=COLOR_ERROR)
+
 if __name__ == "__main__":
     app = GenreClassifierApp()
     app.mainloop()

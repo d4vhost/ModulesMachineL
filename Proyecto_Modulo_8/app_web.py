@@ -6,13 +6,10 @@ import os
 import random
 from collections import defaultdict
 
-# --- Constantes ---
-DATA_PATH = 'data/international_matches.csv' # <-- Tu CSV
+DATA_PATH = 'data/international_matches.csv' 
 MODEL_DIR = 'models'
-MODEL_PATH = os.path.join(MODEL_DIR, 'modelo_futbol_v2.pkl') # <-- Modelo v2
-SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_v2.pkl') # <-- Scaler v2
-
-# --- Funciones del Backend (Cerebro v2) ---
+MODEL_PATH = os.path.join(MODEL_DIR, 'modelo_futbol_v2.pkl') 
+SCALER_PATH = os.path.join(MODEL_DIR, 'scaler_v2.pkl')
 
 @st.cache_resource
 def cargar_modelo_y_rankings_v2():
@@ -76,8 +73,6 @@ def predecir_partido_v2(modelo, scaler, ranking_dict, equipo_local, equipo_visit
         elif resultado == 1: return "Empate"
         else: return equipo_visitante
 
-# --- Funciones de Simulación del Torneo ---
-
 def simular_grupo_v2(modelo, scaler, ranking_dict, equipos_grupo):
     """Simula una fase de grupos completa. Devuelve la tabla de posiciones."""
     tabla = defaultdict(lambda: {'Puntos': 0, 'PJ': 0, 'G': 0, 'E': 0, 'P': 0, 'GF': 0, 'GC': 0, 'DG': 0})
@@ -124,7 +119,7 @@ def simular_ronda_eliminatoria_interactiva_v2(modelo, scaler, ranking_dict, equi
     st.dataframe(pd.DataFrame(partidos), use_container_width=True)
     return ganadores
 
-# --- Interfaz Gráfica de Streamlit ---
+# Interfaz Gráfica de Streamlit 
 st.set_page_config(page_title="Simulador Mundial 2026", layout="wide")
 st.title("🏆 Simulador de la Copa Mundial de Fútbol 2026")
 
@@ -138,7 +133,7 @@ st.markdown("---")
 
 if modelo_v2 and scaler_v2 and rankings_actuales:
 
-    # ¡LA SOLUCIÓN! Ordenamos los equipos por su ranking (1 es el mejor)
+    # Ordenamos los equipos por su ranking (1 es el mejor)
     equipos_ordenados = sorted(rankings_actuales, key=rankings_actuales.get)
     
     # Seleccionamos los 48 MEJORES equipos para el mundial
@@ -153,13 +148,11 @@ if modelo_v2 and scaler_v2 and rankings_actuales:
         st.header("Fase de Grupos")
         with st.spinner("Creando 4 Bombos, sorteando 12 grupos y simulando partidos... ⚽"):
             
-            # No mezclamos todo. Creamos los 4 Bombos.
-            # (Asumiendo 3 anfitriones en el Bombo 1, los mejores 9 rankings van con ellos)
-            # Para simplificar, solo tomamos los 48 mejores por ranking
-            bombo1 = equipos_para_sorteo[0:12]  # Ranks 1-12
-            bombo2 = equipos_para_sorteo[12:24] # Ranks 13-24
-            bombo3 = equipos_para_sorteo[24:36] # Ranks 25-36
-            bombo4 = equipos_para_sorteo[36:48] # Ranks 37-48
+            # Tomamos los 48 mejores por ranking
+            bombo1 = equipos_para_sorteo[0:12]  
+            bombo2 = equipos_para_sorteo[12:24] 
+            bombo3 = equipos_para_sorteo[24:36] 
+            bombo4 = equipos_para_sorteo[36:48] 
 
             # Mezclamos CADA bombo por separado
             random.shuffle(bombo1)
@@ -170,26 +163,21 @@ if modelo_v2 and scaler_v2 and rankings_actuales:
             grupos_sorteados = {}
             for i in range(12):
                 nombre_grupo = f"Grupo {chr(ord('A') + i)}"
-                # Creamos el grupo con un equipo de cada bombo
                 grupos_sorteados[nombre_grupo] = [
                     bombo1[i],
                     bombo2[i],
                     bombo3[i],
                     bombo4[i]
                 ]
-            # --- FIN DEL NUEVO SORTEO ---
 
-            clasificados_directos = [] # 24 equipos
-            mejores_terceros = pd.DataFrame() # 12 equipos
-            cols = st.columns(3) # 3 columnas para 12 grupos
+            clasificados_directos = [] 
+            mejores_terceros = pd.DataFrame()
+            cols = st.columns(3) 
             
-            # Iteramos sobre los grupos creados
             for i, (nombre_grupo, grupo) in enumerate(grupos_sorteados.items()):
                 tabla_df = simular_grupo_v2(modelo_v2, scaler_v2, rankings_actuales, grupo)
                 
-                # Guardar clasificados
                 clasificados_directos.extend(tabla_df.index[:2].tolist())
-                # Guardar el 3er lugar
                 mejores_terceros = pd.concat([mejores_terceros, tabla_df.iloc[2:3]])
                 
                 with cols[i % 3]:
@@ -201,7 +189,7 @@ if modelo_v2 and scaler_v2 and rankings_actuales:
         
         st.header("Clasificación de 3ros Lugares")
         mejores_terceros = mejores_terceros.sort_values(by=['Puntos', 'DG', 'GF'], ascending=False)
-        clasificados_terceros = mejores_terceros.index[:8].tolist() # Los 8 mejores
+        clasificados_terceros = mejores_terceros.index[:8].tolist()
         st.write("Los 8 mejores 3ros lugares que clasifican:")
         st.dataframe(mejores_terceros.head(8), use_container_width=True)
         
@@ -221,7 +209,6 @@ if modelo_v2 and scaler_v2 and rankings_actuales:
 
         st.markdown("---")
         
-        # Quitamos los globos
         st.header(f"¡El CAMPEÓN de la simulación MUNDIAL 2026 es: {campeon[0]}! 🏆")
         
 else:

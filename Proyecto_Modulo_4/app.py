@@ -8,87 +8,68 @@ import os
 import time
 import queue
 
-# --- Estilos (Mismos que Módulo 9) ---
-COLOR_BG = "#1e1e1e"
-COLOR_CARD = "#2c2c2c"
-COLOR_FG = "#ffffff"
-COLOR_ACCENT = "#007aff"
-COLOR_SUCCESS = "#34c759"
-COLOR_ERROR = "#ff3b30"
+COLOR_BG = "#f5f7fa"
+COLOR_CARD = "#ffffff"
+COLOR_CARD_SECONDARY = "#e3f2fd"
+COLOR_FG = "#2c3e50"
+COLOR_ACCENT = "#5c6bc0"
+COLOR_ACCENT_LIGHT = "#9fa8da"
+COLOR_SUCCESS = "#26a69a"
+COLOR_ERROR = "#ef5350"
+COLOR_WARNING = "#ffa726"
+COLOR_INFO = "#42a5f5"
+COLOR_BORDER = "#e0e0e0"
+COLOR_SHADOW = "#d0d0d0"
 
-FONT_TITLE = ("SF Pro Display", 18, "bold")
-FONT_BODY = ("SF Pro Text", 11)
-FONT_STATUS = ("SF Pro Text", 14, "bold")
-FONT_BIG_STATUS = ("SF Pro Display", 22, "bold")
-FONT_SMALL = ("SF Pro Text", 9)
+FONT_TITLE = ("Segoe UI", 24, "bold")
+FONT_SUBTITLE = ("Segoe UI", 16, "bold")
+FONT_BODY = ("Segoe UI", 11)
+FONT_STATUS = ("Segoe UI", 13, "bold")
+FONT_BIG_STATUS = ("Segoe UI", 28, "bold")
+FONT_SMALL = ("Segoe UI", 9)
 
-# --- Configuración del Módulo 4 ---
-# ==================================================================
-# MODIFICACIÓN CLAVE: Usar rutas absolutas basadas en la ubicación del script
-# Obtenemos la ruta absoluta de la carpeta donde está app.py
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-# Creamos la ruta a nuestra carpeta de datos
 IMAGE_FOLDER = os.path.join(BASE_DIR, "data", "reference_images")
-# ==================================================================
-
-SUPPORTED_EXTENSIONS = ('.png', '.jpg', '.jpeg')
 DEFAULT_IMAGE_KEY = "NINGUNO"
 
-# --- Cargar Imágenes de Referencia ---
+# Cargar Imágenes
 os.makedirs(IMAGE_FOLDER, exist_ok=True)
 GESTURE_IMAGES = {}
-print(f"Escaneando carpeta '{IMAGE_FOLDER}' en busca de imágenes de gestos...")
+print(f"Escaneando carpeta '{IMAGE_FOLDER}'...")
+
 try:
-    # Nombres de archivo esperados que coinciden con las claves de gestos
     expected_files = {
-        "PUÑO": "puño.jpg",
-        "PALMA": "palma.jpg",
-        "TIJERA": "tijera.jpg",
-        "DEDO": "dedo.jpg",
+        "PUÑO": "puño.jpg", "PALMA": "palma.jpg",
+        "TIJERA": "tijera.jpg", "DEDO": "dedo.jpg",
         "NINGUNO": "ninguno.jpg"
     }
     
-    # Comprobar si existen los archivos esperados
     for key, filename in expected_files.items():
         filepath = os.path.join(IMAGE_FOLDER, filename)
         if os.path.exists(filepath):
             GESTURE_IMAGES[key] = filepath
-            print(f"  + Encontrada: '{filename}' (Clave: '{key}')")
         else:
-            print(f"  - ADVERTENCIA: No se encontró '{filename}' para el gesto '{key}'.")
-            GESTURE_IMAGES[key] = None # Marcar como faltante
+            GESTURE_IMAGES[key] = None
 
-    # Crear placeholder si 'ninguno.jpg' falta
     if GESTURE_IMAGES.get("NINGUNO") is None:
         placeholder_path = os.path.join(IMAGE_FOLDER, "ninguno.jpg")
         try:
-            img = Image.new('RGB', (200, 200), color='lightgrey')
+            img = Image.new('RGB', (200, 200), color='#e3f2fd')
             draw = ImageDraw.Draw(img)
-            draw.text((50, 90), "Imagen no encontrada", fill='black')
+            draw.text((50, 90), "Sin imagen", fill='#5c6bc0')
             img.save(placeholder_path)
             GESTURE_IMAGES["NINGUNO"] = placeholder_path
-            print(f"  * Creado placeholder en '{placeholder_path}'")
-        except Exception as e:
-            print(f"No se pudo crear el placeholder: {e}")
-            # Asignar None si falla la creación
+        except:
             GESTURE_IMAGES["NINGUNO"] = None
 
-    # Asignar placeholder a gestos sin imagen
     default_path = GESTURE_IMAGES["NINGUNO"]
-    if default_path: # Solo si el placeholder existe o se creó
+    if default_path:
         for key in expected_files:
             if GESTURE_IMAGES.get(key) is None:
                 GESTURE_IMAGES[key] = default_path
-                print(f"  ! Usando placeholder para el gesto '{key}'.")
-    else:
-        print("ERROR: No se pudo cargar ni crear una imagen por defecto. La visualización puede fallar.")
-
 
 except Exception as e:
-    print(f"Error al escanear la carpeta {IMAGE_FOLDER}: {e}")
-
-print(f"Carga de imágenes de gestos completa. {len(GESTURE_IMAGES)} gestos configurados.")
-
+    print(f"Error cargando imágenes: {e}")
 
 class GestureController:
     def __init__(self, app_queue):
@@ -96,14 +77,11 @@ class GestureController:
         self.cap = None
         self.running = False
         self.mp_hands = mp.solutions.hands
-        # Aumentamos la confianza de detección para evitar falsos positivos
-        self.hands = self.mp_hands.Hands(min_detection_confidence=0.7, 
-                                          min_tracking_confidence=0.7, 
-                                          max_num_hands=1)
+        self.hands = self.mp_hands.Hands(min_detection_confidence=0.7, max_num_hands=1)
         self.mp_draw = mp.solutions.drawing_utils
         self.last_gesture = DEFAULT_IMAGE_KEY
         self.last_gesture_time = time.time()
-        self.debounce_time = 0.5 # Tiempo (seg) para estabilizar el gesto
+        self.debounce_time = 0.5
 
     def start(self):
         self.cap = cv2.VideoCapture(0)
@@ -121,260 +99,171 @@ class GestureController:
         cv2.destroyAllWindows()
 
     def classify_gesture(self, hand_landmarks):
-        """
-        Analiza los 21 puntos de la mano para clasificar el gesto.
-        Esta es la lógica principal de detección.
-        """
         try:
-            landmarks = hand_landmarks.landmark
+            lm = hand_landmarks.landmark
+            h = self.mp_hands.HandLandmark
             
-            # --- Lógica de Puntas de Dedos ---
-            # Compara la punta (TIP) con la articulación media (PIP)
-            # True si el dedo está extendido, False si está doblado
-            thumb_extended = landmarks[self.mp_hands.HandLandmark.THUMB_TIP].x > landmarks[self.mp_hands.HandLandmark.THUMB_IP].x
-            index_extended = landmarks[self.mp_hands.HandLandmark.INDEX_FINGER_TIP].y < landmarks[self.mp_hands.HandLandmark.INDEX_FINGER_PIP].y
-            middle_extended = landmarks[self.mp_hands.HandLandmark.MIDDLE_FINGER_TIP].y < landmarks[self.mp_hands.HandLandmark.MIDDLE_FINGER_PIP].y
-            ring_extended = landmarks[self.mp_hands.HandLandmark.RING_FINGER_TIP].y < landmarks[self.mp_hands.HandLandmark.RING_FINGER_PIP].y
-            pinky_extended = landmarks[self.mp_hands.HandLandmark.PINKY_TIP].y < landmarks[self.mp_hands.HandLandmark.PINKY_PIP].y
+            thumb = lm[h.THUMB_TIP].x > lm[h.THUMB_IP].x
+            index = lm[h.INDEX_FINGER_TIP].y < lm[h.INDEX_FINGER_PIP].y
+            middle = lm[h.MIDDLE_FINGER_TIP].y < lm[h.MIDDLE_FINGER_PIP].y
+            ring = lm[h.RING_FINGER_TIP].y < lm[h.RING_FINGER_PIP].y
+            pinky = lm[h.PINKY_TIP].y < lm[h.PINKY_PIP].y
             
-            # --- Clasificación ---
-            
-            # Gesto: PUÑO (Todos los dedos doblados)
-            if not index_extended and not middle_extended and not ring_extended and not pinky_extended:
-                return "PUÑO"
-                
-            # Gesto: PALMA (Todos los dedos extendidos)
-            if index_extended and middle_extended and ring_extended and pinky_extended: # Ignoramos el pulgar para más facilidad
-                return "PALMA"
-                
-            # Gesto: DEDO (Solo índice extendido)
-            if index_extended and not middle_extended and not ring_extended and not pinky_extended:
-                return "DEDO"
-
-            # Gesto: TIJERA (Índice y medio extendidos)
-            if index_extended and middle_extended and not ring_extended and not pinky_extended:
-                return "TIJERA"
-
-            # Si no coincide con nada, es 'NINGUNO'
+            if not index and not middle and not ring and not pinky: return "PUÑO"
+            if index and middle and ring and pinky: return "PALMA"
+            if index and not middle and not ring and not pinky: return "DEDO"
+            if index and middle and not ring and not pinky: return "TIJERA"
             return DEFAULT_IMAGE_KEY
-            
-        except Exception as e:
-            print(f"Error en clasificación: {e}")
+        except:
             return DEFAULT_IMAGE_KEY
-
 
     def detect_gestures_loop(self):
         while self.running and self.cap.isOpened():
             ret, frame = self.cap.read()
-            if not ret:
-                self.app_queue.put(("error", "frame_error"))
-                break
+            if not ret: break
             
             frame = cv2.flip(frame, 1)
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             results = self.hands.process(frame_rgb)
-            
-            gesture_name = DEFAULT_IMAGE_KEY
+            gesture = DEFAULT_IMAGE_KEY
             
             if results.multi_hand_landmarks:
-                for hand_landmarks in results.multi_hand_landmarks:
-                    # Dibuja los puntos de la mano en el frame
-                    self.mp_draw.draw_landmarks(frame, hand_landmarks, self.mp_hands.HAND_CONNECTIONS)
-                    
-                    # Clasifica el gesto
-                    gesture_name = self.classify_gesture(hand_landmarks)
+                for hl in results.multi_hand_landmarks:
+                    self.mp_draw.draw_landmarks(frame, hl, self.mp_hands.HAND_CONNECTIONS)
+                    gesture = self.classify_gesture(hl)
             
-            # --- Lógica de Debounce (Estabilización) ---
-            current_time = time.time()
-            if gesture_name != self.last_gesture:
-                # Si el gesto es diferente, reinicia el timer
-                self.last_gesture_time = current_time
-                self.last_gesture = gesture_name
+            if gesture != self.last_gesture:
+                self.last_gesture_time = time.time()
+                self.last_gesture = gesture
             
-            # Solo envía la actualización si el gesto se ha mantenido
-            # por el tiempo de self.debounce_time
-            if (current_time - self.last_gesture_time > self.debounce_time):
-                # Envia el gesto estabilizado a la GUI
-                self.app_queue.put(("gesture", gesture_name))
+            if (time.time() - self.last_gesture_time > self.debounce_time):
+                self.app_queue.put(("gesture", gesture))
 
-            # Envia el frame de video a la GUI
             self.app_queue.put(("video_frame", frame))
-            
-            time.sleep(0.01) # Pequeña pausa
-
+            time.sleep(0.01)
 
 class SignRecognitionApp(tk.Tk):
     def __init__(self):
         super().__init__()
-        self.title("Módulo 4: Reconocimiento de Señas")
-        self.geometry("900x650") # Ancho aumentado para dos paneles
+        self.title("Reconocimiento de Señas - Módulo 4")
+        
+        w, h = 1100, 720
+        x = (self.winfo_screenwidth() - w) // 2
+        y = (self.winfo_screenheight() - h) // 2
+        self.geometry(f"{w}x{h}+{x}+{y}")
         self.config(bg=COLOR_BG)
         self.resizable(False, False)
 
         self.current_gesture = DEFAULT_IMAGE_KEY
-        
         self.app_queue = queue.Queue()
         self.gesture_control = GestureController(self.app_queue)
-        
-        # --- Estilos ---
-        self.style = ttk.Style(self)
-        self.style.theme_use("clam")
-        self.style.configure(".", background=COLOR_BG, foreground=COLOR_FG, fieldbackground=COLOR_CARD, borderwidth=0)
-        self.style.configure("TFrame", background=COLOR_BG)
-        self.style.configure("Card.TFrame", background=COLOR_CARD, relief="flat", borderwidth=0)
-        self.style.configure("TLabel", background=COLOR_BG, foreground=COLOR_FG, font=FONT_BODY)
-        self.style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_FG, font=FONT_BODY)
-        self.style.configure("Title.TLabel", font=FONT_TITLE, background=COLOR_BG, foreground=COLOR_FG)
-        self.style.configure("Status.TLabel", font=FONT_STATUS, background=COLOR_BG)
-        self.style.configure("BigStatus.Card.TLabel", font=FONT_BIG_STATUS, background=COLOR_CARD, foreground=COLOR_SUCCESS)
-        
-        # --- Layout Principal ---
-        self.main_frame = ttk.Frame(self, padding=10)
-        self.main_frame.pack(expand=True, fill=tk.BOTH)
 
-        ttk.Label(self.main_frame, text="Módulo 4: Reconocimiento de Señas", style="Title.TLabel").pack(pady=(10, 10))
+        style = ttk.Style(self)
+        style.theme_use("clam")
+        style.configure(".", background=COLOR_BG, foreground=COLOR_FG)
+        style.configure("Subtitle.TLabel", font=FONT_SUBTITLE, background=COLOR_BG, foreground=COLOR_ACCENT)
 
-        # --- Panel de Contenido (Cámara + Resultado) ---
-        self.content_frame = ttk.Frame(self.main_frame)
-        self.content_frame.pack(expand=True, fill=tk.BOTH, padx=20, pady=10)
+        header = tk.Frame(self, bg=COLOR_ACCENT, height=80)
+        header.pack(fill=tk.X)
+        header.pack_propagate(False)
+        tk.Label(header, text="🤚 Reconocimiento de Señas", font=("Segoe UI", 28, "bold"), bg=COLOR_ACCENT, fg="white").pack(expand=True)
 
-        # --- Panel de Cámara (Izquierda) ---
-        self.camera_container = ttk.Frame(self.content_frame, style="Card.TFrame", width=540, height=405) # Relación 4:3
-        self.camera_container.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 10))
-        self.camera_container.pack_propagate(False)
+        main = ttk.Frame(self, padding=20)
+        main.pack(expand=True, fill=tk.BOTH)
         
-        self.video_label = tk.Label(self.camera_container, text="Iniciando cámara...", bg=COLOR_CARD, fg=COLOR_FG, font=FONT_BODY)
-        self.video_label.pack(expand=True)
-        
-        # --- Panel de Resultados (Derecha) ---
-        self.result_container = ttk.Frame(self.content_frame, style="Card.TFrame", width=280)
-        self.result_container.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
-        self.result_container.pack_propagate(False)
-        
-        ttk.Label(self.result_container, text="Gesto Detectado:", style="Card.TLabel", font=FONT_TITLE).pack(pady=20, padx=20)
-        
-        # Cargar la imagen por defecto
-        self.img_tk_result = self.load_display_image(GESTURE_IMAGES[DEFAULT_IMAGE_KEY], size=(200, 200))
-        
-        self.image_display_label = tk.Label(self.result_container, image=self.img_tk_result, bg=COLOR_CARD)
-        self.image_display_label.pack(pady=10)
-        
-        self.result_text_label = ttk.Label(self.result_container, 
-                                            text=DEFAULT_IMAGE_KEY, 
-                                            style="BigStatus.Card.TLabel")
-        self.result_text_label.pack(pady=20, padx=20)
+        content = ttk.Frame(main)
+        content.pack(expand=True, fill=tk.BOTH)
 
-        # --- Barra de Estado (Abajo) ---
-        self.status_frame = ttk.Frame(self, padding=10)
-        self.status_frame.pack(fill="x", pady=10, padx=20, side="bottom")
-
-        self.status_label = ttk.Label(self.status_frame, text="Estado: Iniciando...", style="Status.TLabel")
-        self.status_label.pack(side=tk.LEFT)
+        cam_wrap = ttk.Frame(content)
+        cam_wrap.pack(side=tk.LEFT, expand=True, fill=tk.BOTH, padx=(0, 15))
+        ttk.Label(cam_wrap, text="📹 Cámara en Vivo", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
         
-        # --- Iniciar procesos ---
-        self.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # El contenedor se crea y empaqueta correctamente ahora
+        self.camera_container = self._create_card_with_shadow(cam_wrap, width=620, height=465)
+        
+        self.video_label = tk.Label(self.camera_container, text="Iniciando...", bg=COLOR_CARD, fg=COLOR_FG)
+        self.video_label.pack(expand=True, fill=tk.BOTH)
+
+        res_wrap = ttk.Frame(content)
+        res_wrap.pack(side=tk.RIGHT, fill=tk.Y)
+        ttk.Label(res_wrap, text="✨ Gesto Detectado", style="Subtitle.TLabel").pack(anchor="w", pady=(0, 10))
+        
+        self.result_container = self._create_card_with_shadow(res_wrap, width=340, height=465)
+        
+        res_inner = tk.Frame(self.result_container, bg=COLOR_CARD)
+        res_inner.pack(expand=True, fill=tk.BOTH, padx=20, pady=20)
+        
+        self.img_result = self.load_img(GESTURE_IMAGES[DEFAULT_IMAGE_KEY])
+        self.lbl_img = tk.Label(res_inner, image=self.img_result, bg=COLOR_CARD)
+        self.lbl_img.pack(pady=20)
+        
+        self.lbl_text = tk.Label(res_inner, text=DEFAULT_IMAGE_KEY, font=FONT_BIG_STATUS, bg=COLOR_CARD, fg=COLOR_SUCCESS)
+        self.lbl_text.pack(pady=10)
+        
+        self.status_ind = tk.Frame(res_inner, bg=COLOR_WARNING, height=5)
+        self.status_ind.pack(fill=tk.X, side=tk.BOTTOM, pady=10)
+
+        # Footer
+        self.lbl_status = tk.Label(self, text="Estado: Iniciando...", font=FONT_STATUS, bg=COLOR_CARD_SECONDARY, fg=COLOR_FG, height=2)
+        self.lbl_status.pack(fill=tk.X, side=tk.BOTTOM)
+
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
         self.gesture_control.start()
         self.process_queue()
 
-    def load_display_image(self, filepath, size=(200, 150), radius=15):
-        """Carga y redondea una imagen para mostrarla en la GUI."""
-        if filepath is None or not os.path.exists(filepath):
-            # Si el archivo no existe (ej. placeholder falló), crea una imagen de error
-            img = Image.new('RGB', size, color=COLOR_ERROR)
-            draw = ImageDraw.Draw(img)
-            draw.text((10, 10), "Error\nImagen\nFaltante", fill='white', font=FONT_BODY)
-        else:
-            try:
-                img = Image.open(filepath)
-            except Exception as e:
-                print(f"Error abriendo imagen {filepath}: {e}")
-                img = Image.new('RGB', size, color=COLOR_ERROR)
+    def _create_card_with_shadow(self, parent, width, height):
+        # 1. Crear sombra y EMPAQUETARLA 
+        shadow = tk.Frame(parent, bg=COLOR_SHADOW, width=width+4, height=height+4)
+        shadow.pack(fill=tk.BOTH, expand=True) 
+        shadow.pack_propagate(False)
+        
+        card = tk.Frame(shadow, bg=COLOR_CARD, highlightbackground=COLOR_BORDER, highlightthickness=1)
+        card.place(x=0, y=0, width=width, height=height) 
+        
+        return card
 
-        # Redondear esquinas
+    def load_img(self, path):
         try:
-            img_fit = ImageOps.fit(img, size, Image.Resampling.LANCZOS)
-            mask = Image.new('L', size, 0)
-            draw = ImageDraw.Draw(mask)
-            draw.rounded_rectangle((0, 0) + size, radius, fill=255)
-            img_fit.putalpha(mask)
-            return ImageTk.PhotoImage(img_fit)
-        except Exception as e:
-            print(f"Error procesando imagen {filepath}: {e}")
-            return ImageTk.PhotoImage(Image.new('RGB', size, color=COLOR_ERROR))
-
-    def process_video_frame(self, img_pil, size=(540, 405), radius=15):
-        """Procesa un objeto PIL Image para mostrarlo como frame de video."""
-        try:
-            img_fit = ImageOps.fit(img_pil, size, Image.Resampling.LANCZOS)
-            mask = Image.new('L', size, 0)
-            draw = ImageDraw.Draw(mask)
-            draw.rounded_rectangle((0, 0) + size, radius, fill=255)
-            img_fit.putalpha(mask)
-            return ImageTk.PhotoImage(img_fit)
-        except Exception as e:
-            print(f"Error procesando frame de video: {e}")
-            return ImageTk.PhotoImage(Image.new('RGB', size, color=COLOR_ERROR))
+            if path and os.path.exists(path):
+                img = Image.open(path)
+            else:
+                img = Image.new('RGB', (220, 220), color=COLOR_ERROR)
+            
+            img = ImageOps.fit(img, (220, 220), Image.Resampling.LANCZOS)
+            return ImageTk.PhotoImage(img)
+        except:
+            return ImageTk.PhotoImage(Image.new('RGB', (220, 220), color=COLOR_ERROR))
 
     def process_queue(self):
-        """Procesa mensajes de la cámara y el controlador de gestos."""
         try:
             while True:
-                msg = self.app_queue.get_nowait()
-                
-                if isinstance(msg, tuple):
-                    msg_type = msg[0]
-                    
-                    if msg_type == "video_frame":
-                        frame = msg[1]
-                        img_pil = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
-                        self.imgtk_video = self.process_video_frame(img_pil, (540, 405), radius=15)
-                        self.video_label.config(image=self.imgtk_video)
-                    
-                    elif msg_type == "gesture":
-                        gesture_name = msg[1]
-                        # Solo actualiza si el gesto ha cambiado
-                        if gesture_name != self.current_gesture:
-                            self.current_gesture = gesture_name
-                            self.update_gesture_display(gesture_name)
-                            
-                    elif msg_type == "error":
-                        error_type = msg[1]
-                        if error_type == "camera_error":
-                            self.video_label.config(text="ERROR: No se pudo abrir la cámara.", 
-                                                    font=FONT_TITLE, fg=COLOR_ERROR)
-                            self.update_status("Error de cámara", COLOR_ERROR)
-                        elif error_type == "frame_error":
-                            self.update_status("Error al leer frame de cámara", COLOR_ERROR)
-
+                type, data = self.app_queue.get_nowait()
+                if type == "video_frame":
+                    img = Image.fromarray(cv2.cvtColor(data, cv2.COLOR_BGR2RGB))
+                    img = ImageOps.fit(img, (620, 465), Image.Resampling.LANCZOS)
+                    self.imgtk = ImageTk.PhotoImage(img)
+                    self.video_label.config(image=self.imgtk)
+                elif type == "gesture":
+                    self.update_ui(data)
+                elif type == "error":
+                    self.lbl_status.config(text=f"Error: {data}", fg=COLOR_ERROR)
         except queue.Empty:
-            pass 
-        
-        self.after(16, self.process_queue) # Se ejecuta ~60 veces por segundo
+            pass
+        self.after(15, self.process_queue)
 
-    def update_gesture_display(self, gesture_name):
-        """Actualiza el panel de resultados con el nuevo gesto."""
-        
-        # Actualizar texto de estado principal
-        if gesture_name == DEFAULT_IMAGE_KEY:
-            self.update_status("Mostrando mano...", COLOR_FG)
+    def update_ui(self, gesture):
+        if gesture == DEFAULT_IMAGE_KEY:
+            self.lbl_status.config(text="Esperando gesto...", fg=COLOR_FG)
+            self.status_ind.config(bg=COLOR_WARNING)
         else:
-            self.update_status(f"¡Has hecho {gesture_name}!", COLOR_SUCCESS)
+            self.lbl_status.config(text=f"¡Detectado: {gesture}!", fg=COLOR_SUCCESS)
+            self.status_ind.config(bg=COLOR_SUCCESS)
             
-        # Actualizar el panel de resultados
-        self.result_text_label.config(text=gesture_name)
-        
-        # Cargar y mostrar la imagen de referencia
-        filepath = GESTURE_IMAGES.get(gesture_name, GESTURE_IMAGES[DEFAULT_IMAGE_KEY])
-        self.img_tk_result = self.load_display_image(filepath, size=(200, 200))
-        self.image_display_label.config(image=self.img_tk_result)
+        self.lbl_text.config(text=gesture)
+        self.img_result = self.load_img(GESTURE_IMAGES.get(gesture))
+        self.lbl_img.config(image=self.img_result)
 
-    def update_status(self, text, color="white"):
-        """Actualiza la barra de estado inferior."""
-        self.status_label.config(text=f"Estado: {text}", foreground=color)
-
-    def on_closing(self):
-        """Limpia los recursos al cerrar la app."""
-        print("Cerrando la aplicación...")
+    def on_close(self):
         self.gesture_control.stop()
         self.destroy()
 

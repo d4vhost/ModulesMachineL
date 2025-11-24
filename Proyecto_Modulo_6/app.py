@@ -32,18 +32,16 @@ def obtener_comentarios_youtube(video_id, api_key):
             part='snippet',
             videoId=video_id,
             textFormat='plainText',
-            maxResults=100  # Puedes pedir hasta 100 por página
+            maxResults=100  
         )
         
         while request:
             response = request.execute()
             
             for item in response['items']:
-                # Extrae el comentario principal del hilo
                 comment = item['snippet']['topLevelComment']['snippet']['textDisplay']
                 comentarios.append(comment)
-            
-            # Verifica si hay una página siguiente
+
             request = youtube.commentThreads().list_next(request, response)
 
     except HttpError as e:
@@ -57,7 +55,7 @@ def obtener_comentarios_youtube(video_id, api_key):
         else:
             print(f"Detalles del error: {error_details}")
         
-        return [] # Devuelve lista vacía en caso de error
+        return [] 
     
     print(f"Se extrajeron {len(comentarios)} comentarios.")
     return comentarios
@@ -70,11 +68,9 @@ def analizar_sentimiento_proyecto():
     
     if not API_KEY_YOUTUBE:
         print("Terminando script por falta de API Key en config.py.")
-        sys.exit(1) # Salir del script si no hay API key
+        sys.exit(1) 
 
-    # --- 1. EXTRACCIÓN DE DATOS ---
-    
-    # ID del video de Miles Morales "Calling"
+    # EXTRACCIÓN DE DATOS POR CONSOLA
     VIDEO_ID_EJEMPLO = 'D5d5xinZI3E' 
     
     lista_comentarios = obtener_comentarios_youtube(VIDEO_ID_EJEMPLO, API_KEY_YOUTUBE)
@@ -85,43 +81,33 @@ def analizar_sentimiento_proyecto():
 
     # Convertir la lista a un DataFrame de Pandas
     df = pd.DataFrame(lista_comentarios, columns=['comentario'])
-    
-    # --- 2. ANÁLISIS DE SENTIMIENTO --- (RÁPIDO)
-
-    # Cargar el analizador de sentimiento
     print("Cargando modelo de sentimiento (esto puede tardar la primera vez)...")
     analyzer = create_analyzer(task="sentiment", lang="es")
-
-    # Convertir todos los comentarios a una lista de texto
     comentarios_lista = df['comentario'].tolist()
 
     print(f"Analizando {len(comentarios_lista)} comentarios (en lote)...")
-    # Analizar TODOS los comentarios en un solo lote (MUCHO MÁS RÁPIDO)
-    # pysentimiento maneja internamente los lotes (batching)
+    # Analizar TODOS los comentarios en un solo lote 
     resultados = analyzer.predict(comentarios_lista)
 
     # Extraer solo la etiqueta de sentimiento (POS, NEG, NEU) de los resultados
     df['sentimiento'] = [r.output for r in resultados]
     
-    # --- 3. MOSTRAR RESULTADOS ---
-    
+    # MOSTRAR RESULTADOS
     print("\n" + "="*50)
     print("--- Análisis Detallado por Comentario (Primeros 20) ---")
     print(df.head(20))
     print("="*50 + "\n")
     
-    # Calcular el resumen (Tu pregunta: ¿Más apoyo o menos apoyo?)
     conteo_sentimientos = df['sentimiento'].value_counts()
     
-    print("--- Resumen General del Sentimiento ---")
+    print("Resumen General del Sentimiento")
     print(conteo_sentimientos)
     
-    # Extraer conteos (con .get(key, 0) para evitar errores si no hay de un tipo)
     positivos = conteo_sentimientos.get('POS', 0)
     negativos = conteo_sentimientos.get('NEG', 0)
     neutrales = conteo_sentimientos.get('NEU', 0)
     
-    print("\n--- Conclusión ---")
+    print("\nConclusión")
     if positivos > negativos:
         print(f"El sentimiento general es POSITIVO (Hay más apoyo).")
         print(f"({positivos} positivos vs {negativos} negativos)")

@@ -26,7 +26,6 @@ def entrenar_agente(episodios=50000, grid_width=20, grid_height=15, guardar_cada
         exploration_decay=0.9995
     )
     
-    # Estadísticas
     puntos_por_episodio = []
     longitud_maxima_por_episodio = []
     mejor_puntuacion = 0
@@ -36,29 +35,23 @@ def entrenar_agente(episodios=50000, grid_width=20, grid_height=15, guardar_cada
         max_longitud = 1
         
         while not juego.game_over:
-            # Elegir acción
             acciones_validas = juego.get_acciones_validas()
             accion = agente.elegir_accion(estado, acciones_validas)
-            
-            # Ejecutar acción
+
             siguiente_estado, recompensa, perdio_vida, game_over = juego.step(accion)
             acciones_validas_siguiente = juego.get_acciones_validas()
-            
-            # Aprender
+
             agente.aprender(
                 estado, accion, recompensa, 
                 siguiente_estado, acciones_validas_siguiente, game_over
             )
-            
-            # Actualizar estado
+
             estado = siguiente_estado
             max_longitud = max(max_longitud, len(juego.snake))
-        
-        # Reducir exploración
+
         agente.reducir_exploracion()
         agente.episodios_entrenados += 1
-        
-        # Guardar estadísticas
+
         info = juego.get_info()
         puntos_por_episodio.append(info['puntos'])
         longitud_maxima_por_episodio.append(max_longitud)
@@ -78,12 +71,10 @@ def entrenar_agente(episodios=50000, grid_width=20, grid_height=15, guardar_cada
             print(f"   Epsilon (exploración): {agente.epsilon:.4f}")
             print(f"   Estados en Q-Table: {len(agente.q_table)}")
             print("-"*60)
-        
-        # Guardar modelo periódicamente
+
         if episodio % guardar_cada == 0:
             agente.guardar_modelo()
-    
-    # Guardar modelo final
+
     print("\n" + "="*60)
     print("ENTRENAMIENTO COMPLETADO")
     print("="*60)
@@ -94,7 +85,7 @@ def entrenar_agente(episodios=50000, grid_width=20, grid_height=15, guardar_cada
 if __name__ == "__main__":
     entrenar_agente(
         episodios=50000,
-        grid_width=20,   # Ancho
-        grid_height=15,  # Alto
+        grid_width=20, 
+        grid_height=15,  
         guardar_cada=5000
     )

@@ -1,6 +1,6 @@
 import tkinter as tk
 from tkinter import ttk, messagebox
-from PIL import Image, ImageTk, ImageDraw
+from PIL import Image, ImageTk
 import cv2
 import face_recognition
 import os
@@ -8,307 +8,293 @@ import numpy as np
 import threading
 import time
 
-# --- 1. CONFIGURACIÓN DE ESTILO (Reutilizado de tu Módulo 9) ---
-COLOR_BG = "#1e1e1e"
-COLOR_CARD = "#2c2c2c"
-COLOR_FG = "#ffffff"
-COLOR_ACCENT = "#007aff"
-COLOR_SUCCESS = "#34c759"
-COLOR_ERROR = "#ff3b30"
+COLOR_BG_MAIN = "#F0F2F5"      
+COLOR_HEADER = "#2C3E50"   
+COLOR_CARD = "#FFFFFF"    
+COLOR_TEXT_HEAD = "#FFFFFF"     
+COLOR_TEXT_BODY = "#34495E"     
+COLOR_ACCENT = "#2980B9"   
+COLOR_ACCENT_HOVER = "#1F618D"  
+COLOR_SUCCESS = "#27AE60"     
+COLOR_ERROR = "#C0392B"   
+COLOR_WARNING = "#F39C12"    
 
-FONT_TITLE = ("SF Pro Display", 20, "bold")
-FONT_BODY = ("SF Pro Text", 12)
-FONT_BODY_BOLD = ("SF Pro Text", 12, "bold")
-FONT_SMALL = ("SF Pro Text", 10)
-### CAMBIO: Fuente más grande y negrita para el estado ###
-FONT_STATUS = ("SF Pro Text", 13, "bold")
-
-# --- 2. CLASE PRINCIPAL DE LA APLICACIÓN ---
+# Tipografías ajustadas
+FONT_HEADER = ("Segoe UI", 16, "bold") 
+FONT_LABEL = ("Segoe UI", 10)
+FONT_ENTRY = ("Segoe UI", 11)
+FONT_BTN = ("Segoe UI", 10, "bold")
+FONT_STATUS = ("Segoe UI", 10, "bold")
 
 class FaceRecognitionApp(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        # --- Configuración de la Ventana ---
-        self.title("Módulo 3: Detección y Reconocimiento Facial")
-        self.geometry("800x720")
-        self.configure(bg=COLOR_BG)
+        self.title("Sistema de Control Biométrico")
+
+        window_width = 780
+        window_height = 680 
+        
+        screen_width = self.winfo_screenwidth()
+        screen_height = self.winfo_screenheight()
+        x_cordinate = int((screen_width/2) - (window_width/2))
+        y_cordinate = int((screen_height/2) - (window_height/2))
+        
+        self.geometry(f"{window_width}x{window_height}+{x_cordinate}+{y_cordinate}")
+        self.configure(bg=COLOR_BG_MAIN)
         self.resizable(False, False)
         
-        # --- Variables de Estado ---
+        # Variables 
         self.known_face_encodings = []
         self.known_face_names = []
         self.current_frame = None
         self.running = True
+        self.is_registering = False 
 
-        ### CAMBIO: Variables para optimización ###
+        # Variables Video
         self.process_this_frame = True
         self.last_face_locations = []
         self.last_face_names = []
-        self.last_face_landmarks_list = []
         
-        # --- Ruta de datos ---
-        # ==================================================================
-        # MODIFICACIÓN CLAVE: Usar rutas absolutas basadas en la ubicación del script
-        # Obtenemos la ruta absoluta de la carpeta donde está app.py
+        # Rutas
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        # Creamos la ruta a nuestra carpeta de datos
         self.RutaRostros = os.path.join(BASE_DIR, "data", "rostros_registrados")
-        
         os.makedirs(self.RutaRostros, exist_ok=True)
-        # ==================================================================
-        
-        # --- Estilos TTK (Minimalista Apple) ---
-        self.style = ttk.Style(self)
-        self.style.theme_use("clam")
 
-        self.style.configure(".", background=COLOR_BG, foreground=COLOR_FG, fieldbackground=COLOR_CARD, borderwidth=0, lightcolor=COLOR_CARD, darkcolor=COLOR_CARD)
-        self.style.configure("TFrame", background=COLOR_BG)
-        self.style.configure("Card.TFrame", background=COLOR_CARD, relief="flat")
-        
-        self.style.configure("TLabel", background=COLOR_BG, foreground=COLOR_FG, font=FONT_BODY)
-        self.style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_FG, font=FONT_BODY)
-        self.style.configure("Title.TLabel", font=FONT_TITLE, background=COLOR_BG, foreground=COLOR_FG)
-        ### CAMBIO: Usar el nuevo FONT_STATUS ###
-        self.style.configure("Status.TLabel", font=FONT_STATUS, background=COLOR_BG)
-        
-        self.style.configure("TEntry",
-                             font=FONT_BODY,
-                             fieldbackground=COLOR_CARD,
-                             foreground=COLOR_FG,
-                             insertcolor=COLOR_FG,
-                             borderwidth=1,
-                             relief="flat")
-        self.style.map("TEntry",
-                       bordercolor=[("focus", COLOR_ACCENT), ("!focus", COLOR_CARD)],
-                       highlightcolor=[("focus", COLOR_ACCENT)])
-        
-        self.style.configure("TButton",
-                             font=FONT_BODY_BOLD,
-                             background=COLOR_ACCENT,
-                             foreground=COLOR_FG,
-                             borderwidth=0,
-                             padding=(15, 10),
-                             relief="flat")
-        self.style.map("TButton",
-                       background=[("active", "#0056b3"), ("pressed", "#0056b3")],
-                       foreground=[("active", COLOR_FG), ("pressed", COLOR_FG)])
-
-        # --- Creación de Widgets ---
+        self.setup_styles()
         self.create_widgets()
-        
-        # --- Cargar datos ---
-        self.load_known_faces()
+        self.load_known_faces_initial()
 
-        # --- Iniciar Cámara ---
+        # Cámara
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
-            messagebox.showerror("Error de Cámara", "No se pudo abrir la cámara. La aplicación se cerrará.")
+            messagebox.showerror("Error", "No se detecta la cámara.")
             self.destroy()
             return
             
-        # --- Iniciar Bucle de Video ---
         self.video_thread = threading.Thread(target=self.video_loop, daemon=True)
         self.video_thread.start()
         
-        # --- Manejar Cierre ---
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-    def create_widgets(self):
-        main_frame = ttk.Frame(self, padding=20)
-        main_frame.pack(expand=True, fill=tk.BOTH)
+    def setup_styles(self):
+        self.style = ttk.Style(self)
+        self.style.theme_use("clam")
         
-        ttk.Label(main_frame, text="Detección Facial en Vivo", style="Title.TLabel").pack(pady=(0, 20))
+        self.style.configure(".", background=COLOR_BG_MAIN, foreground=COLOR_TEXT_BODY, font=FONT_LABEL)
+        self.style.configure("Header.TFrame", background=COLOR_HEADER)
+        self.style.configure("Card.TFrame", background=COLOR_CARD, relief="flat")
         
-        self.camera_card = ttk.Frame(main_frame, style="Card.TFrame", width=640, height=480)
-        self.camera_card.pack(pady=10)
-        self.camera_card.pack_propagate(False)
+        self.style.configure("Header.TLabel", background=COLOR_HEADER, foreground=COLOR_TEXT_HEAD, font=FONT_HEADER)
+        self.style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT_BODY, font=FONT_LABEL)
+        self.style.configure("Status.TLabel", background=COLOR_BG_MAIN, font=FONT_STATUS)
+        
+        self.style.configure("TEntry", fieldbackground="#F8F9F9", borderwidth=1, relief="solid")
+        self.style.map("TEntry", bordercolor=[("focus", COLOR_ACCENT), ("!focus", "#BDC3C7")])
+        
+        self.style.configure("TButton", font=FONT_BTN, background=COLOR_ACCENT, foreground="#FFFFFF", borderwidth=0)
+        self.style.map("TButton", background=[("active", COLOR_ACCENT_HOVER)])
 
-        self.video_label = tk.Label(self.camera_card, bg=COLOR_CARD)
+    def create_widgets(self):
+        header_frame = ttk.Frame(self, style="Header.TFrame", height=50)
+        header_frame.pack(fill=tk.X, side=tk.TOP)
+        header_frame.pack_propagate(False)
+        
+        ttk.Label(header_frame, text="REGISTRO BIOMÉTRICO", style="Header.TLabel").pack(side=tk.LEFT, padx=20)
+
+        main_content = ttk.Frame(self)
+        main_content.pack(expand=True, fill=tk.BOTH, padx=20, pady=10)
+
+        video_card = ttk.Frame(main_content, style="Card.TFrame", padding=4)
+        video_card.pack(pady=(0, 10))
+        
+        self.camera_frame = tk.Frame(video_card, bg="black", width=640, height=480)
+        self.camera_frame.pack()
+        self.camera_frame.pack_propagate(False)
+
+        self.video_label = tk.Label(self.camera_frame, bg="black")
         self.video_label.place(x=0, y=0, width=640, height=480)
         
-        controls_frame = ttk.Frame(main_frame, style="Card.TFrame", padding=20)
-        controls_frame.pack(fill=tk.X, pady=(20, 0))
+        controls_card = ttk.Frame(main_content, style="Card.TFrame", padding=10)
+        controls_card.pack(fill=tk.X)
+        
+        controls_card.columnconfigure(1, weight=1)
 
-        controls_frame.columnconfigure(1, weight=1)
-
-        ttk.Label(controls_frame, text="Nombre:", style="Card.TLabel", font=FONT_BODY_BOLD).grid(row=0, column=0, padx=(0, 10), sticky="w")
+        ttk.Label(controls_card, text="Nombre:", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10), sticky="w")
         
-        self.name_entry = ttk.Entry(controls_frame, font=FONT_BODY, width=40)
-        self.name_entry.grid(row=0, column=1, sticky="ew", padx=10)
+        self.name_entry = ttk.Entry(controls_card, font=FONT_ENTRY, width=30)
+        self.name_entry.grid(row=0, column=1, sticky="ew", padx=5, ipady=3)
         
-        self.register_button = ttk.Button(controls_frame, text="Registrar Rostro", command=self.register_face)
-        self.register_button.grid(row=0, column=2, padx=(10, 0))
+        self.register_button = ttk.Button(controls_card, text="REGISTRAR", cursor="hand2", command=self.register_face)
+        self.register_button.grid(row=0, column=2, padx=(10, 0), ipadx=10, ipady=5)
         
-        ### CAMBIO: Usar el estilo Status.TLabel y anchor 'center' ###
-        self.status_label = ttk.Label(main_frame, text="Iniciando...", style="Status.TLabel", anchor="center")
-        self.status_label.pack(fill=tk.X, pady=(15, 0))
+        self.status_label = ttk.Label(main_content, text="Sistema listo.", style="Status.TLabel", anchor="center", foreground="#7F8C8D")
+        self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
 
     def video_loop(self):
         try:
             while self.running:
                 ret, frame = self.cap.read()
                 if not ret:
-                    self.update_status("Error: No se puede leer el frame", COLOR_ERROR)
-                    time.sleep(1)
+                    time.sleep(0.5)
                     continue
                 
+                if self.is_registering:
+                     time.sleep(0.02)
+                     continue
+
                 self.current_frame = frame.copy() 
                 frame = cv2.flip(frame, 1)
                 
-                ### CAMBIO: Inicio de la optimización ###
-                # Solo procesamos 1 de cada 2 frames
                 if self.process_this_frame:
-                    # Achicamos el frame para procesar más rápido
                     small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
                     rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
 
-                    # --- Detección y Reconocimiento ---
-                    # Guardamos los resultados en variables de la clase
                     self.last_face_locations = face_recognition.face_locations(rgb_small_frame)
                     face_encodings = face_recognition.face_encodings(rgb_small_frame, self.last_face_locations)
-                    self.last_face_landmarks_list = face_recognition.face_landmarks(rgb_small_frame, self.last_face_locations)
                     
                     self.last_face_names = []
-                    for face_encoding in face_encodings:
-                        matches = face_recognition.compare_faces(self.known_face_encodings, face_encoding, tolerance=0.5)
-                        name = "Desconocido"
+                    current_db_encodings = list(self.known_face_encodings)
+                    current_db_names = list(self.known_face_names)
 
-                        face_distances = face_recognition.face_distance(self.known_face_encodings, face_encoding)
-                        if len(face_distances) > 0:
-                            best_match_index = np.argmin(face_distances)
-                            if matches[best_match_index]:
-                                name = self.known_face_names[best_match_index]
+                    for face_encoding in face_encodings:
+                        name = "Desconocido"
+                        if current_db_encodings:
+                            matches = face_recognition.compare_faces(current_db_encodings, face_encoding, tolerance=0.5)
+                            face_distances = face_recognition.face_distance(current_db_encodings, face_encoding)
+                            
+                            if len(face_distances) > 0:
+                                best_match_index = np.argmin(face_distances)
+                                if matches[best_match_index]:
+                                    name = current_db_names[best_match_index]
                         self.last_face_names.append(name)
                 
-                # Invertimos el flag para el próximo frame
                 self.process_this_frame = not self.process_this_frame
-                ### CAMBIO: Fin de la optimización ###
 
-                # --- Dibujar en el Frame (Esto se hace en TODOS los frames) ---
-                # Usamos los ÚLTIMOS resultados guardados para que el video sea fluido
-                
-                # 1. Dibujar Puntos Faciales
-                for face_landmarks in self.last_face_landmarks_list:
-                    for facial_feature in face_landmarks.keys():
-                        for pt in face_landmarks[facial_feature]:
-                            x = pt[0] * 4
-                            y = pt[1] * 4
-                            cv2.circle(frame, (x, y), 1, (0, 255, 255), -1)
-
-                # 2. Dibujar Rectángulos y Nombres
                 for (top, right, bottom, left), name in zip(self.last_face_locations, self.last_face_names):
-                    top *= 4
-                    right *= 4
-                    bottom *= 4
-                    left *= 4
+                    top *= 4; right *= 4; bottom *= 4; left *= 4
+                    
+                    color = (0, 0, 255) if name == "Desconocido" else (0, 255, 0) 
+                    
+                    cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
+                    cv2.rectangle(frame, (left, bottom - 25), (right, bottom), color, cv2.FILLED)
+                    cv2.putText(frame, name.upper(), (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1)
 
-                    color = COLOR_SUCCESS if name != "Desconocido" else COLOR_ERROR
-                    color_bgr = tuple(int(color[i:i+2], 16) for i in (5, 3, 1))
-
-                    cv2.rectangle(frame, (left, top), (right, bottom), color_bgr, 2)
-                    cv2.rectangle(frame, (left, bottom - 35), (right, bottom), color_bgr, cv2.FILLED)
-                    cv2.putText(frame, name, (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.8, (0, 0, 0), 1)
-
-                # --- Convertir Frame para Tkinter ---
-                frame_resized = cv2.resize(frame, (640, 480)) 
-                img = cv2.cvtColor(frame_resized, cv2.COLOR_BGR2RGB)
+                img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                img = cv2.resize(img, (640, 480))
                 img_pil = Image.fromarray(img)
                 img_tk = ImageTk.PhotoImage(image=img_pil)
                 
-                self.video_label.configure(image=img_tk)
-                self.video_label.image = img_tk
+                if hasattr(self, 'video_label'):
+                    self.video_label.configure(image=img_tk)
+                    self.video_label.image = img_tk
                 
-                ### CAMBIO: Reducir el sleep para un video más fluido ###
-                time.sleep(0.01) # ~100 FPS (teóricos, limitado por la cámara)
+                time.sleep(0.015)
 
-        except Exception as e:
-            if self.running:
-                print(f"Error en el bucle de video: {e}")
+        except Exception:
+            pass
 
-    def load_known_faces(self):
-        self.known_face_encodings = []
-        self.known_face_names = []
-        
-        print("Cargando rostros conocidos...")
-        for filename in os.listdir(self.RutaRostros):
-            if filename.lower().endswith((".jpg", ".png", ".jpeg")):
-                path = os.path.join(self.RutaRostros, filename)
-                name = os.path.splitext(filename)[0]
-                
-                try:
-                    image = face_recognition.load_image_file(path)
-                    encodings = face_recognition.face_encodings(image)
-                    
-                    if encodings:
-                        encoding = encodings[0]
-                        self.known_face_encodings.append(encoding)
-                        self.known_face_names.append(name)
-                        print(f" - Cargado: {name}")
-                    else:
-                        print(f" - Advertencia: No se detectó rostro en {filename}")
-                except Exception as e:
-                    print(f" - Error al cargar {filename}: {e}")
-        
-        print(f"Carga completa. {len(self.known_face_names)} rostros conocidos.")
-        if self.known_face_names:
-            self.update_status(f"{len(self.known_face_names)} rostros cargados.", COLOR_SUCCESS)
-        else:
-            self.update_status("No hay rostros registrados. Usa el botón para añadir.", COLOR_ACCENT)
+    def load_known_faces_initial(self):
+        def _load():
+            loaded_encodings = []
+            loaded_names = []
+            if os.path.exists(self.RutaRostros):
+                for filename in os.listdir(self.RutaRostros):
+                    if filename.lower().endswith((".jpg", ".png")):
+                        try:
+                            img = face_recognition.load_image_file(os.path.join(self.RutaRostros, filename))
+                            encs = face_recognition.face_encodings(img)
+                            if encs:
+                                loaded_encodings.append(encs[0])
+                                loaded_names.append(os.path.splitext(filename)[0])
+                        except: pass
+            
+            self.known_face_encodings = loaded_encodings
+            self.known_face_names = loaded_names
+            msg = f"Base de datos: {len(loaded_names)} usuarios." if loaded_names else "Base de datos vacía."
+            self.after(0, lambda: self.update_status(msg, COLOR_TEXT_BODY))
+
+        threading.Thread(target=_load, daemon=True).start()
 
     def register_face(self):
-        name = self.name_entry.get()
+        name = self.name_entry.get().strip()
         if not name:
-            self.update_status("Error: Debes ingresar un nombre.", COLOR_ERROR)
+            self.update_status("Escriba un nombre.", COLOR_WARNING)
             return
             
-        if self.current_frame is None:
-            self.update_status("Error: Espera a que la cámara inicie.", COLOR_ERROR)
+        # Validación básica de nombre duplicado (Texto)
+        if name.lower() in [n.lower() for n in self.known_face_names]:
+            self.update_status(f"⛔ Nombre '{name}' ya existe.", COLOR_ERROR)
             return
 
-        frame_to_register = self.current_frame.copy()
-        face_locations = face_recognition.face_locations(frame_to_register, model="hog")
-        
-        if len(face_locations) == 0:
-            self.update_status("Error: No se detecta ningún rostro.", COLOR_ERROR)
-            return
-        
-        if len(face_locations) > 1:
-            self.update_status("Error: Hay demasiados rostros. Asegúrate que solo haya uno.", COLOR_ERROR)
+        if self.current_frame is None or self.is_registering:
             return
 
-        filename = f"{name}.jpg"
-        save_path = os.path.join(self.RutaRostros, filename)
-        
+        frame_copy = self.current_frame.copy()
+        self.is_registering = True
+        self.update_status("⏳ Verificando biometría...", COLOR_ACCENT)
+        self.name_entry.config(state='disabled') 
+        self.register_button.config(state='disabled')
+
+        threading.Thread(target=self._register_worker, args=(frame_copy, name), daemon=True).start()
+
+    def _register_worker(self, frame, name):
         try:
-            cv2.imwrite(save_path, frame_to_register)
-            self.update_status(f"¡Éxito! Rostro de '{name}' guardado.", COLOR_SUCCESS)
-            self.name_entry.delete(0, tk.END)
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            boxes = face_recognition.face_locations(rgb, model="hog")
             
-            threading.Thread(target=self.load_known_faces, daemon=True).start()
+            if not boxes:
+                self.after(0, lambda: self._finish_register("⚠️ No se detectó rostro.", COLOR_WARNING))
+                return
             
+            if len(boxes) > 1:
+                self.after(0, lambda: self._finish_register("⚠️ Solo una persona a la vez.", COLOR_WARNING))
+                return
+
+            new_encoding = face_recognition.face_encodings(rgb, boxes)[0]
+            
+            # --- VALIDACIÓN ROSTRO DUPLICADO ---
+            # Comparamos el nuevo rostro con TODOS los rostros existentes
+            if len(self.known_face_encodings) > 0:
+                face_distances = face_recognition.face_distance(self.known_face_encodings, new_encoding)
+
+                best_match_index = np.argmin(face_distances)
+                if face_distances[best_match_index] < 0.5:
+                    existing_name = self.known_face_names[best_match_index]
+
+                    error_msg = f"⛔ Rostro ya registrado como: {existing_name}"
+                    self.after(0, lambda: messagebox.showerror("Identidad Duplicada", 
+                        f"¡Acción Bloqueada!\n\nEste rostro ya pertenece al usuario: '{existing_name}'.\n\nSi desea cambiar el nombre, primero elimine al usuario anterior desde la carpeta 'data'."))
+                    self.after(0, lambda: self._finish_register(error_msg, COLOR_ERROR))
+                    return
+
+            # Si pasa la validación, guardamos
+            path = os.path.join(self.RutaRostros, f"{name}.jpg")
+            cv2.imwrite(path, frame)
+            
+            self.known_face_encodings.append(new_encoding)
+            self.known_face_names.append(name)
+            
+            self.after(0, lambda: self._finish_register(f"Usuario '{name}' registrado.", COLOR_SUCCESS, True))
+
         except Exception as e:
-            self.update_status(f"Error al guardar imagen: {e}", COLOR_ERROR)
+            self.after(0, lambda: self._finish_register(f"Error: {e}", COLOR_ERROR))
 
-    def update_status(self, text, color_hex):
+    def _finish_register(self, msg, color, success=False):
+        self.is_registering = False
+        self.update_status(msg, color)
+        self.name_entry.config(state='normal')
+        self.register_button.config(state='normal')
+        if success:
+            self.name_entry.delete(0, tk.END)
+
+    def update_status(self, text, color):
         if hasattr(self, 'status_label'):
-            self.status_label.config(text=text, foreground=color_hex)
-        else:
-            print(f"Estado (pre-GUI): {text}")
-
+            self.status_label.config(text=text, foreground=color)
 
     def on_closing(self):
-        print("Cerrando aplicación...")
         self.running = False
-        if hasattr(self, 'video_thread'):
-            self.video_thread.join(timeout=1.0)
-        if hasattr(self, 'cap'):
-            self.cap.release()
         self.destroy()
-
-# (Función add_rounded_corners omitida por brevedad, no se usa)
-
-# --- 4. EJECUTAR LA APLICACIÓN ---
 
 if __name__ == "__main__":
     app = FaceRecognitionApp()

@@ -1,12 +1,12 @@
-# Terminal 1 - Abrir RECEPTOR
+# Terminal 1 - Abrir RECEPTOR (con cámara)
 python app.py receiver
 
 # Terminal 2 - Abrir EMISOR (con cámara)
 python app.py
 
-Máquina     |   Qué hace                     |   Configuración necesaria
-------------------------------------------------------------------------------
-RECEPTOR    |   Espera recibir imágenes      |   Nada, solo ejecutar
-------------------------------------------------------------------------------
-EMISOR      |   Envía imágenes con gestos    |   Configurar IP del receptor
- 
+La computadora (Emisor): 
+Automáticamente se abre como EMISOR.
+La IP 26.18.184.16 ya está guardada como destino.
+
+Computadora del Receptor:
+Él debe tener este mismo código, pero al final del archivo debe cambiar App("sender") por App("receiver"). 

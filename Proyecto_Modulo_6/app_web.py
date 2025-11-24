@@ -6,14 +6,12 @@ from googleapiclient.errors import HttpError
 import sys
 import re
 
-# Importa tu clave de API desde el archivo config.py
+# Importa clave de API desde el archivo config.py
 try:
     from config import API_KEY_YOUTUBE
 except ImportError:
     st.error("Error: No se encontró el archivo 'config.py' o la variable 'API_KEY_YOUTUBE'.")
     st.stop()
-
-# --- Funciones de Lógica Optimizadas (Con Caché) ---
 
 @st.cache_resource
 def cargar_modelo_sentimiento():
@@ -56,10 +54,9 @@ def obtener_comentarios_youtube(video_id):
             if 'nextPageToken' in response:
                 request = youtube.commentThreads().list_next(request, response)
             else:
-                request = None # Termina el bucle
+                request = None 
             
             # Límite de seguridad para no gastar toda la cuota en pruebas
-            # Puedes aumentar o quitar este límite
             if len(comentarios) >= 1000: 
                 print("Límite de 1000 comentarios alcanzado.")
                 break 
@@ -87,7 +84,7 @@ def analizar_sentimientos_en_lote(comentarios_lista):
 
     print(f"CACHE MISS (DATOS/Análisis): Analizando {len(comentarios_lista)} comentarios...")
     
-    # Carga el modelo (esto es rápido, viene de la caché de RECURSOS)
+    # Carga el modelo 
     analyzer = cargar_modelo_sentimiento() 
     
     # Predecir
@@ -107,13 +104,10 @@ def extraer_video_id(url):
         return match.group(1)
     return None
 
-# --- Interfaz de Usuario (Streamlit) ---
-
+# Interfaz de Usuario 
 st.set_page_config(page_title="Análisis de Sentimiento", layout="wide")
 st.title("Módulo 6: Analizador de Sentimiento de YouTube")
 
-# Cargar el modelo al inicio. Gracias a @st.cache_resource,
-# esto solo lo "siente" el usuario la primera vez que carga la página.
 with st.spinner("Cargando modelo de IA... (solo la primera vez)"):
     cargar_modelo_sentimiento()
 
@@ -130,21 +124,19 @@ if st.button("Analizar Video"):
         if not video_id:
             st.error("URL no válida. No se pudo extraer un ID de video.")
         else:
-            
-            # --- Proceso Optimizado ---
-            
-            # 1. Obtener comentarios (Rápido si ya está en caché)
+
+            # 1. Obtener comentarios 
             with st.spinner(f"Paso 1/2: Extrayendo comentarios (ID: {video_id})..."):
                 lista_comentarios = obtener_comentarios_youtube(video_id)
             
             if lista_comentarios:
                 st.success(f"¡Se obtuvieron {len(lista_comentarios)} comentarios!")
                 
-                # 2. Analizar sentimientos (Rápido si ya está en caché)
+                # 2. Analizar sentimientos 
                 with st.spinner("Paso 2/2: Analizando sentimientos..."):
                     df_analizado = analizar_sentimientos_en_lote(lista_comentarios)
 
-                # 3. Mostrar Resultados (Instantáneo)
+                # 3. Mostrar Resultados
                 st.subheader("Resumen General del Sentimiento")
                 
                 conteo_sentimientos = df_analizado['sentimiento'].value_counts()
@@ -157,7 +149,6 @@ if st.button("Analizar Video"):
                 # Gráfico de barras
                 st.bar_chart(conteo_sentimientos)
 
-                # Conclusión
                 positivos = conteo_sentimientos.get('POS', 0)
                 negativos = conteo_sentimientos.get('NEG', 0)
                 if positivos > negativos:
@@ -166,13 +157,12 @@ if st.button("Analizar Video"):
                     st.error(f"Conclusión: El sentimiento general es NEGATIVO (Hay menos apoyo). ({negativos} vs {positivos})")
                 else:
                     st.info("Conclusión: El sentimiento general es NEUTRAL o MIXTO.")
-                
-                # Mostrar datos detallados
+
                 st.subheader("Análisis Detallado de Comentarios")
                 st.dataframe(df_analizado, use_container_width=True)
             
             elif lista_comentarios is None:
-                # Esto maneja el caso donde la API falló (ej. comentarios desactivados)
+                # Esto maneja el caso donde la API falló 
                 st.error("No se pudo completar el análisis (revisa el error de arriba).")
             else:
                 # Esto maneja el caso de 0 comentarios

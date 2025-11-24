@@ -10,17 +10,14 @@ class SnakeGame:
         self.vidas_totales = vidas_iniciales
         self.vidas = vidas_iniciales
         self.record = 0
-        self.longitud_actual = 1  # Guardar la longitud actual
+        self.longitud_actual = 1  
         self.reset()
     
     def reset(self):
         """Reinicia en posición ALEATORIA pero MANTIENE el tamaño de la serpiente"""
         # Generar posición aleatoria para la cabeza
-        # Calcular margen mínimo necesario para la serpiente
         margen_x = min(self.longitud_actual, self.grid_width // 3)
         margen_y = min(self.longitud_actual, self.grid_height // 3)
-        
-        # Asegurar que hay espacio suficiente
         min_x = margen_x
         max_x = max(min_x + 1, self.grid_width - margen_x - 1)
         min_y = margen_y
@@ -28,8 +25,7 @@ class SnakeGame:
         
         centro_x = random.randint(min_x, max_x)
         centro_y = random.randint(min_y, max_y)
-        
-        # Dirección aleatoria inicial
+
         direcciones_posibles = ['UP', 'DOWN', 'LEFT', 'RIGHT']
         self.direccion = random.choice(direcciones_posibles)
         
@@ -49,7 +45,6 @@ class SnakeGame:
         # Colocar comida aleatoria
         self.spawn_food()
         
-        # Estado del juego
         self.game_over = False
         self.pasos = 0
         self.pasos_sin_comida = 0
@@ -61,7 +56,7 @@ class SnakeGame:
         """Reset completo con vidas, puntos y tamaño restaurados"""
         self.vidas = self.vidas_totales
         self.puntos = 0
-        self.longitud_actual = 1  # RESETEAR el tamaño a 1
+        self.longitud_actual = 1  
         return self.reset()
     
     def spawn_food(self):
@@ -112,10 +107,8 @@ class SnakeGame:
     
     def _hay_peligro(self, fila, col):
         """Verifica si hay peligro (pared o cuerpo) en una posición"""
-        # Pared
         if fila < 0 or fila >= self.grid_height or col < 0 or col >= self.grid_width:
             return 1
-        # Cuerpo de la serpiente
         if (fila, col) in self.snake[:-1]:
             return 1
         return 0
@@ -142,8 +135,7 @@ class SnakeGame:
         """
         if self.game_over:
             return self.get_estado(), 0, False, True
-        
-        # Cambiar dirección (solo si no es opuesta)
+
         acciones_validas = self.get_acciones_validas()
         if accion in acciones_validas:
             self.direccion = accion
@@ -159,8 +151,7 @@ class SnakeGame:
             nueva_cabeza = (cabeza[0], cabeza[1] - 1)
         elif self.direccion == 'RIGHT':
             nueva_cabeza = (cabeza[0], cabeza[1] + 1)
-        
-        # Verificar colisión con pared
+
         if (nueva_cabeza[0] < 0 or nueva_cabeza[0] >= self.grid_height or
             nueva_cabeza[1] < 0 or nueva_cabeza[1] >= self.grid_width):
             self.vidas -= 1
@@ -168,29 +159,24 @@ class SnakeGame:
                 self.game_over = True
                 return self.get_estado(), -100, True, True
             else:
-                # Pierde vida, MANTIENE tamaño y aparece en posición ALEATORIA
                 self.reset()
                 return self.get_estado(), -100, True, False
-        
-        # Verificar colisión con el cuerpo
+
         if nueva_cabeza in self.snake[:-1]:
             self.vidas -= 1
             if self.vidas <= 0:
                 self.game_over = True
                 return self.get_estado(), -100, True, True
             else:
-                # Pierde vida, MANTIENE tamaño y aparece en posición ALEATORIA
                 self.reset()
                 return self.get_estado(), -100, True, False
-        
-        # Insertar nueva cabeza
+
         self.snake.insert(0, nueva_cabeza)
         
         recompensa = 0
         distancia_antes = self._distancia_manhattan(cabeza, self.food)
         distancia_despues = self._distancia_manhattan(nueva_cabeza, self.food)
-        
-        # Verificar si comió
+
         if nueva_cabeza == self.food:
             if not hasattr(self, 'puntos'):
                 self.puntos = 0
@@ -198,28 +184,23 @@ class SnakeGame:
             recompensa = 50  # PREMIO: Comer comida
             self.spawn_food()
             self.pasos_sin_comida = 0
-            
-            # IMPORTANTE: Actualizar la longitud guardada
+
             self.longitud_actual = len(self.snake)
-            
-            # Actualizar record
+
             if self.puntos > self.record:
                 self.record = self.puntos
         else:
-            # Quitar la cola (no crece)
             self.snake.pop()
-            
-            # PREMIO/CASTIGO: Acercarse/alejarse de la comida
+
             if distancia_despues < distancia_antes:
-                recompensa = 2  # Se acerca
+                recompensa = 2  
             else:
-                recompensa = -1  # Se aleja
+                recompensa = -1  
             
             self.pasos_sin_comida += 1
         
-        # CASTIGO: Si tarda mucho sin comer (evita loops infinitos)
+        # CASTIGO: Si tarda mucho sin comer 
         if self.pasos_sin_comida > self.max_pasos_sin_comida:
-            # Si la serpiente es muy larga, reducir el tamaño a la mitad
             if self.longitud_actual > 10:
                 self.longitud_actual = max(5, self.longitud_actual // 2)
             
@@ -232,7 +213,7 @@ class SnakeGame:
                 return self.get_estado(), -50, True, False
         
         self.pasos += 1
-        recompensa += 0.1  # PREMIO: Sobrevivir cada paso
+        recompensa += 0.1  
         
         return self.get_estado(), recompensa, False, False
     

@@ -2,7 +2,6 @@ import os
 import warnings
 import logging
 
-# --- FILTROS DE LIMPIEZA DE CONSOLA ---
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3'
 warnings.filterwarnings("ignore")
 logging.getLogger("tensorflow").setLevel(logging.ERROR)
@@ -23,7 +22,6 @@ import math
 import random
 from datetime import datetime
 
-# --- CONFIGURACIÓN ESTÉTICA ---
 COLOR_BG = "#0a0e27"
 COLOR_PANEL = "#1a1f3a"
 COLOR_PANEL_LIGHT = "#252d4a"
@@ -41,7 +39,6 @@ FONT_BODY = ("SF Pro Text", 11)
 FONT_STATUS = ("SF Pro Text", 10, "bold")
 FONT_HAMBURGER = ("SF Pro Display", 24)
 
-# --- RUTAS ---
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 GALLERY_DIR = os.path.join(BASE_DIR, "data", "gallery_images")
 RECEIVED_DIR = os.path.join(BASE_DIR, "data", "gallery_images_receptor")
@@ -50,12 +47,12 @@ ICON_PATH = os.path.join(BASE_DIR, "data", "icon", "estacion.png")
 os.makedirs(GALLERY_DIR, exist_ok=True)
 os.makedirs(RECEIVED_DIR, exist_ok=True)
 
-# --- RED ---
-RECEIVER_IP = os.environ.get('RECEIVER_IP', '127.0.0.1')
+# IP de Receptor
+# Radmin VPN IP del destino:
+RECEIVER_IP = '26.18.184.16' 
 PORT = 9999
 MAX_IMG_SIZE = (500, 500)
 
-# --- UTILERÍAS ---
 def center_window(root, width, height):
     screen_width = root.winfo_screenwidth()
     screen_height = root.winfo_screenheight()
@@ -81,13 +78,11 @@ def load_icon_image(size=(100, 100)):
         if os.path.exists(ICON_PATH):
             icon = Image.open(ICON_PATH).convert("RGBA")
             data = np.array(icon)
-            # Remover fondo blanco
             white_mask = (data[:,:,0] > 230) & (data[:,:,1] > 230) & (data[:,:,2] > 230)
             data[white_mask] = [0, 0, 0, 0]
             icon = Image.fromarray(data, 'RGBA')
             icon = icon.resize(size, Image.Resampling.LANCZOS)
-            
-            # Colorear cyan
+
             colored_data = np.array(icon)
             for i in range(colored_data.shape[0]):
                 for j in range(colored_data.shape[1]):
@@ -104,39 +99,34 @@ def load_icon_image(size=(100, 100)):
         print(f"[Error] Al cargar icono: {e}")
         return None
 
-# --- CLASE PRINCIPAL ---
 class App:
     def __init__(self, mode):
         self.mode = mode
         self.root = tk.Tk()
         self.root.title(f"HarmonyOS - {mode.upper()}")
         self.root.configure(bg=COLOR_BG)
-        
-        # ESTADOS LÓGICOS
+
         self.current_image = None
         self.wobble_phase = 0
         self.glow_phase = 0
+
+        self.is_grabbing = False    
+        self.is_preparing = False   
+        self.sender_done = False    
         
-        # ESTADOS DE INTERACCIÓN
-        self.is_grabbing = False    # Emisor: Puño cerrado
-        self.is_preparing = False   # Emisor: Palma abierta (Previa)
-        self.sender_done = False    # Emisor: Ya envió
-        
-        self.rx_buffer = None       # Receptor: Imagen recibida
-        self.rx_state = "WAITING"   # WAITING -> READY_TO_REVEAL -> REVEALING -> DONE
+        self.rx_buffer = None       
+        self.rx_state = "WAITING"  
         self.rx_reveal_progress = 0.0
         
         self.gallery_visible = False
         self.history_visible = False
-        
-        # RECURSOS
+
         self.custom_icon = load_icon_image(size=(100, 100))
         self.cloud_particles = []
         for _ in range(30):
             self.cloud_particles.append({
                 'x': 200 + random.randint(-80, 80), 'y': 250 + random.randint(-80, 80),
                 'r': random.randint(15, 45), 'dx': random.uniform(-0.8, 0.8), 'dy': random.uniform(-0.8, 0.8),
-                # Eliminamos 'opacity' complejo para evitar errores de Tkinter
                 'color': random.choice([COLOR_ACCENT, "#4cc9f0", "#4895ef"]) 
             })
 
@@ -159,7 +149,7 @@ class App:
         self.process_loop()
         self.root.mainloop()
 
-    # --- CÁMARA ---
+    # CÁMARA
     def start_camera(self):
         if self.cap is None:
             self.cap = cv2.VideoCapture(0)
@@ -171,24 +161,42 @@ class App:
             self.cap = None
 
     def camera_loop(self):
+        print("[Cámara] Iniciando lectura de webcam...")
+        frame_count = 0
         while self.running:
             if self.cap and self.cap.isOpened():
-                ret, frame = self.cap.read()
-                if ret:
-                    frame = cv2.flip(frame, 1)
-                    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    results = self.hands.process(rgb)
-                    
-                    gesture = "NINGUNO"
-                    if results.multi_hand_landmarks:
-                        gesture = self.classify_gesture(results.multi_hand_landmarks[0])
-                    
-                    if gesture != self.last_gesture:
-                        if time.time() - self.last_gesture_time > 0.15:
-                            self.last_gesture = gesture
-                            self.last_gesture_time = time.time()
-                            self.queue.put(("gesture", gesture))
+                try:
+                    ret, frame = self.cap.read()
+                    if ret:
+                        frame_count += 1
+                        frame = cv2.flip(frame, 1)
+                        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                        results = self.hands.process(rgb)
+                        
+                        gesture = "NINGUNO"
+                        if results.multi_hand_landmarks:
+                            gesture = self.classify_gesture(results.multi_hand_landmarks[0])
+
+                            if frame_count % 30 == 0:
+                                print(f"[OJO] Mano detectada. Gesto actual: {gesture}")
+                        else:
+                            if frame_count % 60 == 0:
+                                print("[BUSCANDO] No veo ninguna mano...")
+
+                        if gesture != self.last_gesture:
+                            if time.time() - self.last_gesture_time > 0.15:
+                                print(f"--> ¡CAMBIO DE GESTO DETECTADO!: De {self.last_gesture} a {gesture}")
+                                self.last_gesture = gesture
+                                self.last_gesture_time = time.time()
+                                self.queue.put(("gesture", gesture))
+                    else:
+                        print("[Error] No se pudo leer el frame de la cámara.")
+                        time.sleep(0.1)
+                except Exception as e:
+                    print(f"[Error Crítico] En bucle de cámara: {e}")
+                    time.sleep(0.1)
             else:
+                print("[Aviso] Cámara no iniciada o desconectada.")
                 time.sleep(0.5)
             time.sleep(0.03)
 
@@ -201,7 +209,7 @@ class App:
         if count == 0: return "PUÑO"
         return "NINGUNO"
 
-    # --- RED ---
+    # RED 
     def start_server(self):
         self.server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.server_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -243,17 +251,19 @@ class App:
     def send_image(self):
         def _send():
             try:
+                print(f"[Emisor] Intentando conectar a {RECEIVER_IP}:{PORT}...")
                 sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5) 
                 sock.connect((RECEIVER_IP, PORT))
                 data = pickle.dumps(self.current_image)
                 sock.sendall(struct.pack("Q", len(data)) + data)
                 sock.close()
                 print("[Emisor] Imagen enviada con éxito.")
-            except:
-                print("[Emisor] Error al conectar.")
+            except Exception as e:
+                print(f"[Emisor] Error al conectar o enviar: {e}")
         threading.Thread(target=_send, daemon=True).start()
 
-    # --- UI ---
+    # UI
     def setup_ui(self):
         if self.mode == "sender":
             w, h = 700, 650
@@ -273,7 +283,7 @@ class App:
             self.btn_hamburger = tk.Button(header, text="☰", font=FONT_HAMBURGER, bg=COLOR_PANEL, fg=COLOR_ACCENT, bd=0, cursor="hand2", command=self.toggle_gallery)
             self.btn_hamburger.pack(side="right", padx=10)
             tk.Label(header, text="📤 EMISOR", font=FONT_TITLE, bg=COLOR_PANEL, fg=COLOR_ACCENT).pack(anchor="w")
-            tk.Label(header, text="Gestos: Palma (Prep) -> Puño (Agarra) -> Palma (Envía)", font=("SF Pro Text", 10), bg=COLOR_PANEL, fg=COLOR_TEXT_DIM).pack(anchor="w", pady=(2,0))
+            tk.Label(header, text=f"Destino: {RECEIVER_IP}", font=("SF Pro Text", 10), bg=COLOR_PANEL, fg=COLOR_TEXT_DIM).pack(anchor="w", pady=(2,0))
 
             self.img_container = tk.Frame(self.panel_view, bg=COLOR_PANEL_LIGHT, highlightbackground=COLOR_ACCENT, highlightthickness=2)
             self.img_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 20))
@@ -371,7 +381,6 @@ class App:
                 if col > 1: col=0; row+=1
             except: pass
 
-    # --- LÓGICA ---
     def select_sender_image(self, path):
         img = Image.open(path)
         self.current_image = resize_image_smart(img, MAX_IMG_SIZE)
@@ -412,7 +421,7 @@ class App:
         self.root.after(30, self.process_loop)
 
     def animate_ui(self):
-        # --- EMISOR ---
+        # EMISOR 
         if self.mode == "sender" and self.current_image:
             if self.sender_done:
                 self.lbl_icon.place_forget()
@@ -428,7 +437,7 @@ class App:
             else:
                 self.lbl_icon.place_forget()
 
-        # --- RECEPTOR ---
+        # RECEPTOR
         if self.mode == "receiver":
             if self.cv_cloud.winfo_ismapped():
                 self.cv_cloud.delete("all")
@@ -482,19 +491,16 @@ class App:
                     self.sender_done = True
                     print("[Emisor] Enviando imagen...")
                     self.send_image()
-                    self.stop_camera()
 
         # RECEPTOR
         if self.mode == "receiver" and self.rx_buffer and self.rx_state != "DONE":
             if gesture == "PUÑO":
-                # MOSTRAR ICONOS Y TEXTO "ESPERANDO"
                 self.lbl_rx_icon.place(relx=0.5, y=60, anchor="n")
                 self.cv_cloud.place(relx=0.5, rely=0.5, anchor="center", width=400, height=500)
                 self.lbl_rx_icon.lift()
                 self.lbl_status.config(text="Esperando a recibir imagen", fg=COLOR_TEXT_DIM)
             
             elif gesture == "PALMA":
-                # OCULTAR ICONOS Y CAMBIAR A "RECIBIENDO"
                 self.lbl_rx_icon.place_forget()
                 self.cv_cloud.place_forget()
                 self.lbl_status.config(text="Recibiendo imagen...", fg=COLOR_ACCENT)
@@ -549,8 +555,7 @@ class App:
         if hasattr(self, 'server_sock'): self.server_sock.close()
         self.root.destroy()
 
+# CONFIGURACIÓN DE EJECUCIÓN
 if __name__ == "__main__":
-    import sys
-    mode = "sender"
-    if len(sys.argv) > 1: mode = sys.argv[1]
-    App(mode)
+    # AQUÍ DEFINIMOS QUE SOMOS EL EMISOR SIEMPRE
+    App("sender")

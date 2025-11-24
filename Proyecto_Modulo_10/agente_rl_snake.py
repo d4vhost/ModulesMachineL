@@ -12,7 +12,7 @@ class AgenteSnakeQL:
         """
         Agente Q-Learning para Snake
         """
-        # Q-Table: diccionario de diccionarios
+        # Q-Table: diccionario 
         self.q_table = defaultdict(lambda: defaultdict(float))
         
         # Hiperparámetros
@@ -21,8 +21,7 @@ class AgenteSnakeQL:
         self.epsilon = exploration_rate     # Tasa de exploración inicial
         self.epsilon_min = exploration_min  # Exploración mínima
         self.epsilon_decay = exploration_decay
-        
-        # Estadísticas
+
         self.episodios_entrenados = 0
         self.recompensa_total_historico = []
     
@@ -33,14 +32,11 @@ class AgenteSnakeQL:
         - Explotación: mejor acción conocida
         """
         if random.uniform(0, 1) < self.epsilon:
-            # EXPLORACIÓN: Acción aleatoria válida
             return random.choice(acciones_validas)
         else:
-            # EXPLOTACIÓN: Mejor acción según Q-Table
             q_valores = [self.q_table[estado][accion] for accion in acciones_validas]
             max_q = max(q_valores)
-            
-            # Si hay empate, elegir aleatoriamente entre las mejores
+
             mejores_acciones = [
                 acciones_validas[i] for i in range(len(acciones_validas))
                 if q_valores[i] == max_q
@@ -54,10 +50,8 @@ class AgenteSnakeQL:
         Actualización Q-Learning (Ecuación de Bellman)
         Q(s,a) ← Q(s,a) + α[r + γ·max(Q(s',a')) - Q(s,a)]
         """
-        # Valor Q actual
         q_actual = self.q_table[estado][accion]
-        
-        # Valor Q máximo del siguiente estado
+
         if game_over or not acciones_validas_siguiente:
             max_q_siguiente = 0.0
         else:

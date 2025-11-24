@@ -1,0 +1,7 @@
+# Clave guardada de api en config.py
+
+# Para ejecuta en consola un unico video en especifico
+python app.py
+
+# Inicializacion en web localhost para cualquier video 
+streamlit run app_web.py

@@ -1,0 +1,5 @@
+# Entrenar al modelo
+python entrenar.py
+
+# Iniciar
+python app.py

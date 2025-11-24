@@ -7,7 +7,6 @@ from agente_rl_snake import AgenteSnakeQL
 import os
 import math
 
-# --- CONFIGURACIÓN DE ESTILO ---
 COLOR_BG = "#1e1e1e"
 COLOR_CARD = "#2c2c2c"
 COLOR_FG = "#ffffff"
@@ -35,8 +34,7 @@ class AppSnakeIA(tk.Tk):
         self.grid_height = 15
         self.juego = SnakeGame(grid_width=self.grid_size, grid_height=self.grid_height, vidas_iniciales=3)
         self.agente = AgenteSnakeQL()
-        
-        # Verificar modelo
+
         if not os.path.exists(MODEL_PATH):
             messagebox.showerror(
                 "Modelo no encontrado",
@@ -67,34 +65,28 @@ class AppSnakeIA(tk.Tk):
     def crear_widgets(self):
         main_frame = ttk.Frame(self, padding=20)
         main_frame.pack(expand=True, fill=tk.BOTH)
-        
-        # Título
+
         ttl_frame = ttk.Frame(main_frame)
         ttl_frame.pack(fill="x", pady=(0, 10))
         
         ttl_label = ttk.Label(ttl_frame, text="Snake Q-Learning", style="Title.TLabel")
         ttl_label.pack()
-        
-        # Panel de estadísticas
+
         stats_frame = ttk.Frame(main_frame)
         stats_frame.pack(fill="x", pady=10)
-        
-        # Puntos
+
         self.label_puntos = ttk.Label(stats_frame, text="Puntos: 0", 
                                      style="Stats.TLabel", foreground=COLOR_ACCENT)
         self.label_puntos.pack(side="left", padx=15)
-        
-        # Vidas
+
         self.label_vidas = ttk.Label(stats_frame, text="Vidas: 3", 
                                     style="Stats.TLabel", foreground="#ff3366")
         self.label_vidas.pack(side="left", padx=15)
-        
-        # Record
+
         self.label_record = ttk.Label(stats_frame, text="Record: 0", 
                                      style="Stats.TLabel", foreground="#ffd700")
         self.label_record.pack(side="right", padx=15)
-        
-        # Canvas del juego
+
         canvas_width = self.grid_size * CELL_SIZE
         canvas_height = self.grid_height * CELL_SIZE
         
@@ -107,11 +99,9 @@ class AppSnakeIA(tk.Tk):
             highlightbackground=COLOR_ACCENT
         )
         self.canvas.pack(pady=15)
-        
-        # Dibujar grid
+
         self.dibujar_grid()
-        
-        # Botón de control
+
         self.btn_iniciar = tk.Button(
             main_frame, text="Empezar Juego", 
             font=("SF Pro Display", 14, "bold"), 
@@ -145,8 +135,7 @@ class AppSnakeIA(tk.Tk):
         
         # Radio base de la serpiente
         radio_base = CELL_SIZE // 2 - 2
-        
-        # Dibujar cuerpo continuo
+
         for idx in range(len(self.juego.snake) - 1):
             fila1, col1 = self.juego.snake[idx]
             fila2, col2 = self.juego.snake[idx + 1]
@@ -156,40 +145,33 @@ class AppSnakeIA(tk.Tk):
             x2 = col2 * CELL_SIZE + CELL_SIZE // 2
             y2 = fila2 * CELL_SIZE + CELL_SIZE // 2
             
-            # Calcular el radio para cada segmento (cabeza más grande)
+            # Calcular el radio para cada segmento 
             if idx == 0:
                 radio = radio_base
             else:
-                # Decrece gradualmente hacia la cola
                 factor = 1 - (idx / len(self.juego.snake)) * 0.4
                 radio = int(radio_base * factor)
-            
-            # Color más brillante en la cabeza
+
             if idx == 0:
                 color = "#00ffcc"
             else:
                 color = COLOR_SNAKE
-            
-            # Dibujar círculo en la posición actual
+
             self.canvas.create_oval(
                 x1 - radio, y1 - radio,
                 x1 + radio, y1 + radio,
                 fill=color, outline="", tags="snake"
             )
-            
-            # Dibujar línea de conexión entre segmentos
+
             if idx < len(self.juego.snake) - 1:
-                # Calcular ángulo para el grosor perpendicular
                 dx = x2 - x1
                 dy = y2 - y1
                 dist = math.sqrt(dx*dx + dy*dy)
                 
                 if dist > 0:
-                    # Vector perpendicular
                     px = -dy / dist * radio
                     py = dx / dist * radio
-                    
-                    # Dibujar polígono de conexión
+
                     self.canvas.create_polygon(
                         x1 + px, y1 + py,
                         x1 - px, y1 - py,
@@ -197,8 +179,7 @@ class AppSnakeIA(tk.Tk):
                         x2 + px, y2 + py,
                         fill=color, outline="", tags="snake"
                     )
-        
-        # Dibujar última parte de la cola
+
         ultima_fila, ultima_col = self.juego.snake[-1]
         x_ultima = ultima_col * CELL_SIZE + CELL_SIZE // 2
         y_ultima = ultima_fila * CELL_SIZE + CELL_SIZE // 2
@@ -209,20 +190,16 @@ class AppSnakeIA(tk.Tk):
             x_ultima + radio_cola, y_ultima + radio_cola,
             fill=COLOR_SNAKE, outline="", tags="snake"
         )
-        
-        # DIBUJAR OJOS EN LA CABEZA
+
         cabeza_fila, cabeza_col = self.juego.snake[0]
         x_cabeza = cabeza_col * CELL_SIZE + CELL_SIZE // 2
         y_cabeza = cabeza_fila * CELL_SIZE + CELL_SIZE // 2
-        
-        # Determinar dirección para posicionar los ojos
+
         direccion = self.juego.direccion
-        
-        # Tamaño de los ojos
+
         tamano_ojo = radio_base // 3
         separacion = radio_base // 2
-        
-        # Posición de los ojos según la dirección
+
         if direccion == 'RIGHT':
             ojo1_x, ojo1_y = x_cabeza + separacion//2, y_cabeza - separacion
             ojo2_x, ojo2_y = x_cabeza + separacion//2, y_cabeza + separacion
@@ -235,16 +212,13 @@ class AppSnakeIA(tk.Tk):
         elif direccion == 'DOWN':
             ojo1_x, ojo1_y = x_cabeza - separacion, y_cabeza + separacion//2
             ojo2_x, ojo2_y = x_cabeza + separacion, y_cabeza + separacion//2
-        
-        # Dibujar ojos (blanco con pupila negra)
+
         for ojo_x, ojo_y in [(ojo1_x, ojo1_y), (ojo2_x, ojo2_y)]:
-            # Ojo blanco
             self.canvas.create_oval(
                 ojo_x - tamano_ojo, ojo_y - tamano_ojo,
                 ojo_x + tamano_ojo, ojo_y + tamano_ojo,
                 fill="white", outline="", tags="eyes"
             )
-            # Pupila negra
             pupila = tamano_ojo // 2
             self.canvas.create_oval(
                 ojo_x - pupila, ojo_y - pupila,
@@ -289,20 +263,17 @@ class AppSnakeIA(tk.Tk):
         if self.juego.game_over:
             self.manejar_game_over()
             return
-        
-        # La IA elige la acción
+
         estado = self.juego.get_estado()
         acciones = self.juego.get_acciones_validas()
         accion = self.agente.elegir_accion(estado, acciones)
         
-        # Ejecutar acción
         _, _, perdio_vida, game_over = self.juego.step(accion)
         
         # Dibujar y actualizar
         self.dibujar_juego()
         self.actualizar_stats()
         
-        # Próximo frame
         self.after(GAME_SPEED, self.loop_juego)
     
     def manejar_game_over(self):
