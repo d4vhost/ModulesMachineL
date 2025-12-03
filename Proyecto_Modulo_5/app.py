@@ -122,7 +122,6 @@ class PlateTracker:
                 if current_time - d['last_seen'] < MAX_TRACKING_AGE]
 
 
-# CLASE DEL RECONOCEDOR
 class LicensePlateRecognizer:
     def __init__(self, app_queue):
         self.app_queue = app_queue
@@ -293,7 +292,6 @@ class LicensePlateRecognizer:
                 time.sleep(0.1)
 
 
-# --- CLASE GUI ---
 class PlateRecognitionApp(tk.Tk):
     def __init__(self):
         super().__init__()
@@ -302,13 +300,11 @@ class PlateRecognitionApp(tk.Tk):
         self.config(bg=COLOR_BG)
         self.resizable(False, False)
         
-        # Centrar ventana
         self.center_window()
 
         self.app_queue = queue.Queue()
         self.recognizer = LicensePlateRecognizer(self.app_queue)
         
-        # Estilos modernos
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
         
@@ -397,7 +393,6 @@ class PlateRecognitionApp(tk.Tk):
                                      style="Status.TLabel")
         self.status_label.pack(side=tk.LEFT)
         
-        # FPS counter con badge
         fps_frame = tk.Frame(status_inner, bg=COLOR_ACCENT, 
                             highlightbackground=COLOR_ACCENT,
                             highlightthickness=0)
@@ -409,6 +404,7 @@ class PlateRecognitionApp(tk.Tk):
                                  padx=12, pady=4)
         self.fps_label.pack()
         
+        # CORRECCIÓN: Inicializar last_frame_time correctamente
         self.last_frame_time = time.time()
         self.fps_history = deque(maxlen=10)
 
@@ -500,13 +496,19 @@ class PlateRecognitionApp(tk.Tk):
                     self.video_label.config(image=imgtk)
                     self.video_label.image = imgtk
                     
-                    # FPS
                     current_time = time.time()
-                    fps = 1.0 / (current_time - self.last_frame_time)
-                    self.last_frame_time = current_time
-                    self.fps_history.append(fps)
-                    avg_fps = sum(self.fps_history) / len(self.fps_history)
-                    self.fps_label.config(text=f"FPS: {int(avg_fps)}")
+                    time_diff = current_time - self.last_frame_time
+                    
+                    # Solo calcular FPS si hay diferencia de tiempo significativa
+                    if time_diff > 0.001:  # Mínimo 1ms de diferencia
+                        fps = 1.0 / time_diff
+                        self.fps_history.append(fps)
+                        self.last_frame_time = current_time
+                    
+                    # Mostrar FPS promedio si hay datos
+                    if len(self.fps_history) > 0:
+                        avg_fps = sum(self.fps_history) / len(self.fps_history)
+                        self.fps_label.config(text=f"FPS: {int(avg_fps)}")
                     
                 elif msg[0] == "status":
                     self.status_label.config(text=f"Estado: {msg[1]}")

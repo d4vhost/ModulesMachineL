@@ -49,7 +49,7 @@ os.makedirs(RECEIVED_DIR, exist_ok=True)
 
 # IP de Receptor
 # Radmin VPN IP del destino:
-RECEIVER_IP = '26.18.184.16' 
+RECEIVER_IP = '10.79.17.180' 
 PORT = 9999
 MAX_IMG_SIZE = (500, 500)
 
