@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 from PIL import Image, ImageTk
 import cv2
 import face_recognition
@@ -8,6 +8,7 @@ import numpy as np
 import threading
 import time
 
+# --- CONFIGURACIÓN DE COLORES ---
 COLOR_BG_MAIN = "#F0F2F5"      
 COLOR_HEADER = "#2C3E50"   
 COLOR_CARD = "#FFFFFF"    
@@ -17,12 +18,11 @@ COLOR_ACCENT = "#2980B9"
 COLOR_ACCENT_HOVER = "#1F618D"  
 COLOR_SUCCESS = "#27AE60"     
 COLOR_ERROR = "#C0392B"   
-COLOR_WARNING = "#F39C12"    
+COLOR_WARNING = "#F39C12"
+COLOR_ANIMAL = "#8E44AD"
 
-# Tipografías ajustadas
 FONT_HEADER = ("Segoe UI", 16, "bold") 
 FONT_LABEL = ("Segoe UI", 10)
-FONT_ENTRY = ("Segoe UI", 11)
 FONT_BTN = ("Segoe UI", 10, "bold")
 FONT_STATUS = ("Segoe UI", 10, "bold")
 
@@ -30,42 +30,42 @@ class FaceRecognitionApp(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("Sistema de Control Biométrico")
-
-        window_width = 780
-        window_height = 680 
+        self.title("Sistema de Detección Biométrica")
         
+        window_width = 800
+        window_height = 750 
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         x_cordinate = int((screen_width/2) - (window_width/2))
         y_cordinate = int((screen_height/2) - (window_height/2))
-        
         self.geometry(f"{window_width}x{window_height}+{x_cordinate}+{y_cordinate}")
+        
         self.configure(bg=COLOR_BG_MAIN)
         self.resizable(False, False)
         
-        # Variables 
-        self.known_face_encodings = []
-        self.known_face_names = []
-        self.current_frame = None
+        # --- ESTADO DEL SISTEMA ---
+        self.view_mode = 'live'
         self.running = True
-        self.is_registering = False 
-
-        # Variables Video
-        self.process_this_frame = True
-        self.last_face_locations = []
-        self.last_face_names = []
+        self.model_failed = False
         
-        # Rutas
+        # --- CARGAR MODELOS ---
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-        self.RutaRostros = os.path.join(BASE_DIR, "data", "rostros_registrados")
-        os.makedirs(self.RutaRostros, exist_ok=True)
+        
+        # Rutas exactas
+        self.path_proto = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.prototxt.txt")
+        self.path_model = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.caffemodel")
+        
+        self.net = None
+        self.CLASSES = ["fondo", "avion", "bicicleta", "pajaro", "bote",
+                        "botella", "bus", "auto", "gato", "silla", "vaca", "mesa",
+                        "perro", "caballo", "moto", "persona", "planta", "oveja",
+                        "sofa", "tren", "tv"]
+        self.load_mobilenet()
 
         self.setup_styles()
         self.create_widgets()
-        self.load_known_faces_initial()
 
-        # Cámara
+        # --- INICIAR CÁMARA ---
         self.cap = cv2.VideoCapture(0)
         if not self.cap.isOpened():
             messagebox.showerror("Error", "No se detecta la cámara.")
@@ -77,30 +77,48 @@ class FaceRecognitionApp(tk.Tk):
         
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
 
+    def load_mobilenet(self):
+        print(f"\n--- DIAGNÓSTICO DE MODELO ---")
+        print(f"Buscando archivo 1 en: {self.path_proto}")
+        print(f"Buscando archivo 2 en: {self.path_model}")
+
+        try:
+            if os.path.exists(self.path_proto) and os.path.exists(self.path_model):
+                # Validar tamaño
+                size_proto = os.path.getsize(self.path_proto)
+                size_model = os.path.getsize(self.path_model)
+                
+                print(f"Tamaño Prototxt: {size_proto} bytes")
+                print(f"Tamaño Caffemodel: {size_model} bytes")
+
+                if size_proto > 0 and size_model > 0:
+                    self.net = cv2.dnn.readNetFromCaffe(self.path_proto, self.path_model)
+                    print(">>> ÉXITO: Modelo MobileNet cargado correctamente.\n")
+                else:
+                    print(">>> ERROR: Archivos encontrados pero están VACÍOS (0kb).\n")
+            else:
+                print(">>> ERROR: No se encuentran los archivos en la carpeta 'model'. Revisa los nombres.\n")
+        except Exception as e:
+            print(f">>> EXCEPCIÓN: {e}\n")
+            self.net = None
+
     def setup_styles(self):
         self.style = ttk.Style(self)
         self.style.theme_use("clam")
-        
         self.style.configure(".", background=COLOR_BG_MAIN, foreground=COLOR_TEXT_BODY, font=FONT_LABEL)
         self.style.configure("Header.TFrame", background=COLOR_HEADER)
         self.style.configure("Card.TFrame", background=COLOR_CARD, relief="flat")
-        
         self.style.configure("Header.TLabel", background=COLOR_HEADER, foreground=COLOR_TEXT_HEAD, font=FONT_HEADER)
         self.style.configure("Card.TLabel", background=COLOR_CARD, foreground=COLOR_TEXT_BODY, font=FONT_LABEL)
         self.style.configure("Status.TLabel", background=COLOR_BG_MAIN, font=FONT_STATUS)
-        
-        self.style.configure("TEntry", fieldbackground="#F8F9F9", borderwidth=1, relief="solid")
-        self.style.map("TEntry", bordercolor=[("focus", COLOR_ACCENT), ("!focus", "#BDC3C7")])
-        
         self.style.configure("TButton", font=FONT_BTN, background=COLOR_ACCENT, foreground="#FFFFFF", borderwidth=0)
         self.style.map("TButton", background=[("active", COLOR_ACCENT_HOVER)])
 
     def create_widgets(self):
-        header_frame = ttk.Frame(self, style="Header.TFrame", height=50)
+        header_frame = ttk.Frame(self, style="Header.TFrame", height=60)
         header_frame.pack(fill=tk.X, side=tk.TOP)
         header_frame.pack_propagate(False)
-        
-        ttk.Label(header_frame, text="REGISTRO BIOMÉTRICO", style="Header.TLabel").pack(side=tk.LEFT, padx=20)
+        ttk.Label(header_frame, text="DETECCIÓN INTELIGENTE", style="Header.TLabel").pack(side=tk.LEFT, padx=20)
 
         main_content = ttk.Frame(self)
         main_content.pack(expand=True, fill=tk.BOTH, padx=20, pady=10)
@@ -115,182 +133,178 @@ class FaceRecognitionApp(tk.Tk):
         self.video_label = tk.Label(self.camera_frame, bg="black")
         self.video_label.place(x=0, y=0, width=640, height=480)
         
-        controls_card = ttk.Frame(main_content, style="Card.TFrame", padding=10)
+        controls_card = ttk.Frame(main_content, style="Card.TFrame", padding=15)
         controls_card.pack(fill=tk.X)
         
-        controls_card.columnconfigure(1, weight=1)
+        self.btn_action = ttk.Button(controls_card, text="📂 CARGAR IMAGEN PARA ANALIZAR", cursor="hand2", command=self.toggle_mode)
+        self.btn_action.pack(fill=tk.X, ipady=8)
+        
+        self.status_label = ttk.Label(main_content, text="Iniciando cámara...", style="Status.TLabel", anchor="center", foreground="#7F8C8D")
+        self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
 
-        ttk.Label(controls_card, text="Nombre:", style="Card.TLabel").grid(row=0, column=0, padx=(0, 10), sticky="w")
+    def toggle_mode(self):
+        if self.view_mode == 'live':
+            self.analyze_image_file()
+        else:
+            self.reset_to_camera()
+
+    def reset_to_camera(self):
+        self.view_mode = 'live'
+        self.btn_action.config(text="📂 CARGAR IMAGEN PARA ANALIZAR", cursor="hand2")
+        self.update_status("Cámara activa.", COLOR_TEXT_BODY)
+
+    def process_frame_for_objects(self, image):
+        detected_types = []
         
-        self.name_entry = ttk.Entry(controls_card, font=FONT_ENTRY, width=30)
-        self.name_entry.grid(row=0, column=1, sticky="ew", padx=5, ipady=3)
-        
-        self.register_button = ttk.Button(controls_card, text="REGISTRAR", cursor="hand2", command=self.register_face)
-        self.register_button.grid(row=0, column=2, padx=(10, 0), ipadx=10, ipady=5)
-        
-        self.status_label = ttk.Label(main_content, text="Sistema listo.", style="Status.TLabel", anchor="center", foreground="#7F8C8D")
-        self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
+        # 1. PERSONAS (Face Recognition)
+        try:
+            rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            if self.view_mode == 'live':
+                small = cv2.resize(image, (0, 0), fx=0.25, fy=0.25)
+                rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
+                locs = face_recognition.face_locations(rgb_small)
+                face_locations = [(t*4, r*4, b*4, l*4) for (t, r, b, l) in locs]
+            else:
+                face_locations = face_recognition.face_locations(rgb_image)
+
+            if face_locations:
+                detected_types.append("PERSONA")
+                for (top, right, bottom, left) in face_locations:
+                    cv2.rectangle(image, (left, top), (right, bottom), (0, 255, 0), 2)
+                    label = "PERSONA"
+                    (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1)
+                    cv2.rectangle(image, (left, bottom - 25), (left + w + 10, bottom), (0, 255, 0), cv2.FILLED)
+                    cv2.putText(image, label, (left + 5, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+        except: pass
+
+        # 2. ANIMALES (MobileNet)
+        if self.net and not self.model_failed:
+            try:
+                (h_img, w_img) = image.shape[:2]
+                blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 0.007843, (300, 300), 127.5)
+                self.net.setInput(blob)
+                detections = self.net.forward()
+
+                for i in range(detections.shape[2]):
+                    confidence = detections[0, 0, i, 2]
+                    if confidence > 0.5:
+                        idx = int(detections[0, 0, i, 1])
+                        label = self.CLASSES[idx]
+                        animales = ["pajaro", "gato", "vaca", "perro", "caballo", "oveja"]
+                        
+                        if label in animales:
+                            detected_types.append("ANIMAL")
+                            box = detections[0, 0, i, 3:7] * np.array([w_img, h_img, w_img, h_img])
+                            (startX, startY, endX, endY) = box.astype("int")
+                            
+                            cv2.rectangle(image, (startX, startY), (endX, endY), (255, 0, 255), 2)
+                            txt = f"ANIMAL ({label.upper()})"
+                            (w, h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1)
+                            cv2.rectangle(image, (startX, startY - 25), (startX + w + 10, startY), (255, 0, 255), cv2.FILLED)
+                            cv2.putText(image, txt, (startX + 5, startY - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+            except:
+                self.model_failed = True
+
+        return image, detected_types
 
     def video_loop(self):
-        try:
-            while self.running:
-                ret, frame = self.cap.read()
-                if not ret:
-                    time.sleep(0.5)
-                    continue
+        process_this_frame = True
+        
+        while self.running:
+            if self.view_mode == 'static':
+                time.sleep(0.1)
+                continue
+
+            ret, frame = self.cap.read()
+            if not ret:
+                time.sleep(0.1)
+                continue
+            
+            frame = cv2.flip(frame, 1)
+            display_frame = frame.copy()
+
+            if process_this_frame:
+                display_frame, detected = self.process_frame_for_objects(display_frame)
                 
-                if self.is_registering:
-                     time.sleep(0.02)
-                     continue
-
-                self.current_frame = frame.copy() 
-                frame = cv2.flip(frame, 1)
+                # --- SOLO ACTUALIZAR TEXTO EN MODO CÁMARA ---
+                if "PERSONA" in detected:
+                    self.update_status("PERSONA DETECTADA", COLOR_SUCCESS)
+                elif "ANIMAL" in detected:
+                    self.update_status("ANIMAL DETECTADO", COLOR_ANIMAL)
+                else:
+                    self.update_status("BUSCANDO...", COLOR_WARNING)
+            
+            try:
+                img = cv2.cvtColor(display_frame, cv2.COLOR_BGR2RGB)
+                img = Image.fromarray(img)
+                img_tk = ImageTk.PhotoImage(image=img)
                 
-                if self.process_this_frame:
-                    small_frame = cv2.resize(frame, (0, 0), fx=0.25, fy=0.25)
-                    rgb_small_frame = cv2.cvtColor(small_frame, cv2.COLOR_BGR2RGB)
-
-                    self.last_face_locations = face_recognition.face_locations(rgb_small_frame)
-                    face_encodings = face_recognition.face_encodings(rgb_small_frame, self.last_face_locations)
-                    
-                    self.last_face_names = []
-                    current_db_encodings = list(self.known_face_encodings)
-                    current_db_names = list(self.known_face_names)
-
-                    for face_encoding in face_encodings:
-                        name = "Desconocido"
-                        if current_db_encodings:
-                            matches = face_recognition.compare_faces(current_db_encodings, face_encoding, tolerance=0.5)
-                            face_distances = face_recognition.face_distance(current_db_encodings, face_encoding)
-                            
-                            if len(face_distances) > 0:
-                                best_match_index = np.argmin(face_distances)
-                                if matches[best_match_index]:
-                                    name = current_db_names[best_match_index]
-                        self.last_face_names.append(name)
-                
-                self.process_this_frame = not self.process_this_frame
-
-                for (top, right, bottom, left), name in zip(self.last_face_locations, self.last_face_names):
-                    top *= 4; right *= 4; bottom *= 4; left *= 4
-                    
-                    color = (0, 0, 255) if name == "Desconocido" else (0, 255, 0) 
-                    
-                    cv2.rectangle(frame, (left, top), (right, bottom), color, 2)
-                    cv2.rectangle(frame, (left, bottom - 25), (right, bottom), color, cv2.FILLED)
-                    cv2.putText(frame, name.upper(), (left + 6, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.5, (255, 255, 255), 1)
-
-                img = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                img = cv2.resize(img, (640, 480))
-                img_pil = Image.fromarray(img)
-                img_tk = ImageTk.PhotoImage(image=img_pil)
-                
-                if hasattr(self, 'video_label'):
+                if hasattr(self, 'video_label') and self.view_mode == 'live':
                     self.video_label.configure(image=img_tk)
                     self.video_label.image = img_tk
-                
-                time.sleep(0.015)
-
-        except Exception:
-            pass
-
-    def load_known_faces_initial(self):
-        def _load():
-            loaded_encodings = []
-            loaded_names = []
-            if os.path.exists(self.RutaRostros):
-                for filename in os.listdir(self.RutaRostros):
-                    if filename.lower().endswith((".jpg", ".png")):
-                        try:
-                            img = face_recognition.load_image_file(os.path.join(self.RutaRostros, filename))
-                            encs = face_recognition.face_encodings(img)
-                            if encs:
-                                loaded_encodings.append(encs[0])
-                                loaded_names.append(os.path.splitext(filename)[0])
-                        except: pass
+            except: pass
             
-            self.known_face_encodings = loaded_encodings
-            self.known_face_names = loaded_names
-            msg = f"Base de datos: {len(loaded_names)} usuarios." if loaded_names else "Base de datos vacía."
-            self.after(0, lambda: self.update_status(msg, COLOR_TEXT_BODY))
+            time.sleep(0.015)
 
-        threading.Thread(target=_load, daemon=True).start()
-
-    def register_face(self):
-        name = self.name_entry.get().strip()
-        if not name:
-            self.update_status("Escriba un nombre.", COLOR_WARNING)
-            return
-            
-        # Validación básica de nombre duplicado (Texto)
-        if name.lower() in [n.lower() for n in self.known_face_names]:
-            self.update_status(f"⛔ Nombre '{name}' ya existe.", COLOR_ERROR)
+    def analyze_image_file(self):
+        self.view_mode = 'static'
+        
+        file_path = filedialog.askopenfilename(title="Seleccionar Imagen", filetypes=[("Imágenes", "*.jpg *.jpeg *.png")])
+        if not file_path:
+            self.reset_to_camera()
             return
 
-        if self.current_frame is None or self.is_registering:
-            return
-
-        frame_copy = self.current_frame.copy()
-        self.is_registering = True
-        self.update_status("⏳ Verificando biometría...", COLOR_ACCENT)
-        self.name_entry.config(state='disabled') 
-        self.register_button.config(state='disabled')
-
-        threading.Thread(target=self._register_worker, args=(frame_copy, name), daemon=True).start()
-
-    def _register_worker(self, frame, name):
         try:
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            boxes = face_recognition.face_locations(rgb, model="hog")
-            
-            if not boxes:
-                self.after(0, lambda: self._finish_register("⚠️ No se detectó rostro.", COLOR_WARNING))
+            stream = open(file_path, "rb")
+            bytes_data = bytearray(stream.read())
+            numpy_array = np.asarray(bytes_data, dtype=np.uint8)
+            image = cv2.imdecode(numpy_array, cv2.IMREAD_UNCHANGED)
+            stream.close()
+
+            if image is None:
+                messagebox.showerror("Error", "No se pudo cargar la imagen.")
+                self.reset_to_camera()
                 return
             
-            if len(boxes) > 1:
-                self.after(0, lambda: self._finish_register("⚠️ Solo una persona a la vez.", COLOR_WARNING))
-                return
+            if image.shape[2] == 4:
+                image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
 
-            new_encoding = face_recognition.face_encodings(rgb, boxes)[0]
+            # Procesamos la imagen (dibuja los recuadros)
+            processed_image, detected = self.process_frame_for_objects(image.copy())
+
+            # Ajuste de tamaño
+            h, w = processed_image.shape[:2]
+            ratio = min(640/w, 480/h)
+            new_w = int(w * ratio)
+            new_h = int(h * ratio)
+            processed_image = cv2.resize(processed_image, (new_w, new_h))
             
-            # --- VALIDACIÓN ROSTRO DUPLICADO ---
-            # Comparamos el nuevo rostro con TODOS los rostros existentes
-            if len(self.known_face_encodings) > 0:
-                face_distances = face_recognition.face_distance(self.known_face_encodings, new_encoding)
+            final_display = np.zeros((480, 640, 3), dtype=np.uint8)
+            y_offset = (480 - new_h) // 2
+            x_offset = (640 - new_w) // 2
+            final_display[y_offset:y_offset+new_h, x_offset:x_offset+new_w] = processed_image
 
-                best_match_index = np.argmin(face_distances)
-                if face_distances[best_match_index] < 0.5:
-                    existing_name = self.known_face_names[best_match_index]
-
-                    error_msg = f"⛔ Rostro ya registrado como: {existing_name}"
-                    self.after(0, lambda: messagebox.showerror("Identidad Duplicada", 
-                        f"¡Acción Bloqueada!\n\nEste rostro ya pertenece al usuario: '{existing_name}'.\n\nSi desea cambiar el nombre, primero elimine al usuario anterior desde la carpeta 'data'."))
-                    self.after(0, lambda: self._finish_register(error_msg, COLOR_ERROR))
-                    return
-
-            # Si pasa la validación, guardamos
-            path = os.path.join(self.RutaRostros, f"{name}.jpg")
-            cv2.imwrite(path, frame)
+            img_rgb = cv2.cvtColor(final_display, cv2.COLOR_BGR2RGB)
+            img_pil = Image.fromarray(img_rgb)
+            img_tk = ImageTk.PhotoImage(image=img_pil)
             
-            self.known_face_encodings.append(new_encoding)
-            self.known_face_names.append(name)
+            self.video_label.configure(image=img_tk)
+            self.video_label.image = img_tk
+
+            self.btn_action.config(text="🎥 VOLVER A CÁMARA", cursor="hand2")
             
-            self.after(0, lambda: self._finish_register(f"Usuario '{name}' registrado.", COLOR_SUCCESS, True))
+            # --- AQUÍ CAMBIÉ EL MENSAJE ---
+            # Ya no muestra "DETECTADO: ...", solo un mensaje fijo.
+            self.update_status("Imagen analizada.", COLOR_TEXT_BODY)
 
         except Exception as e:
-            self.after(0, lambda: self._finish_register(f"Error: {e}", COLOR_ERROR))
-
-    def _finish_register(self, msg, color, success=False):
-        self.is_registering = False
-        self.update_status(msg, color)
-        self.name_entry.config(state='normal')
-        self.register_button.config(state='normal')
-        if success:
-            self.name_entry.delete(0, tk.END)
+            print(f"Error: {e}")
+            self.reset_to_camera()
 
     def update_status(self, text, color):
-        if hasattr(self, 'status_label'):
-            self.status_label.config(text=text, foreground=color)
+        try:
+            self.after(0, lambda: self.status_label.config(text=text, foreground=color))
+        except: pass
 
     def on_closing(self):
         self.running = False
