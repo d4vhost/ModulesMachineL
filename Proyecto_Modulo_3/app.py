@@ -34,12 +34,11 @@ class FaceRecognitionApp(tk.Tk):
         
         # --- AJUSTE DE TAMAÑO Y CENTRADO ---
         window_width = 800
-        window_height = 620  # Reducido para que se centre mejor
+        window_height = 620
         
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
         
-        # Cálculo matemático para el centro exacto
         x_cordinate = int((screen_width/2) - (window_width/2))
         y_cordinate = int((screen_height/2) - (window_height/2))
         
@@ -56,15 +55,17 @@ class FaceRecognitionApp(tk.Tk):
         # --- CARGAR MODELOS ---
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        # Nombres de archivo corregidos (sin .txt extra)
         self.path_proto = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.prototxt")
         self.path_model = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.caffemodel")
         
         self.net = None
-        self.CLASSES = ["fondo", "avion", "bicicleta", "pajaro", "bote",
-                        "botella", "bus", "auto", "gato", "silla", "vaca", "mesa",
-                        "perro", "caballo", "moto", "persona", "planta", "oveja",
-                        "sofa", "tren", "tv"]
+        
+        # Clases en INGLÉS (como está entrenado el modelo)
+        self.CLASSES = ["background", "aeroplane", "bicycle", "bird", "boat",
+                        "bottle", "bus", "car", "cat", "chair", "cow", "diningtable",
+                        "dog", "horse", "motorbike", "person", "pottedplant", "sheep",
+                        "sofa", "train", "tvmonitor"]
+        
         self.load_mobilenet()
 
         self.setup_styles()
@@ -157,11 +158,12 @@ class FaceRecognitionApp(tk.Tk):
         # 1. PERSONAS (Face Recognition)
         try:
             rgb_image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            
             if self.view_mode == 'live':
-                small = cv2.resize(image, (0, 0), fx=0.25, fy=0.25)
+                small = cv2.resize(image, (0, 0), fx=0.5, fy=0.5)
                 rgb_small = cv2.cvtColor(small, cv2.COLOR_BGR2RGB)
                 locs = face_recognition.face_locations(rgb_small)
-                face_locations = [(t*4, r*4, b*4, l*4) for (t, r, b, l) in locs]
+                face_locations = [(t*2, r*2, b*2, l*2) for (t, r, b, l) in locs]
             else:
                 face_locations = face_recognition.face_locations(rgb_image)
 
@@ -173,37 +175,119 @@ class FaceRecognitionApp(tk.Tk):
                     (w, h), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1)
                     cv2.rectangle(image, (left, bottom - 25), (left + w + 10, bottom), (0, 255, 0), cv2.FILLED)
                     cv2.putText(image, label, (left + 5, bottom - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
-        except: pass
+        except: 
+            pass
 
         # 2. ANIMALES (MobileNet)
         if self.net and not self.model_failed:
             try:
                 (h_img, w_img) = image.shape[:2]
-                blob = cv2.dnn.blobFromImage(cv2.resize(image, (300, 300)), 0.007843, (300, 300), 127.5)
-                self.net.setInput(blob)
-                detections = self.net.forward()
-
-                for i in range(detections.shape[2]):
-                    confidence = detections[0, 0, i, 2]
+                
+                # MEJORA: Procesamiento multi-escala para mejor detección
+                detecciones_totales = []
+                
+                # Procesar en múltiples escalas
+                escalas = [300, 400, 500] if self.view_mode == 'static' else [300]
+                
+                for escala in escalas:
+                    blob = cv2.dnn.blobFromImage(
+                        cv2.resize(image, (escala, escala)), 
+                        0.007843, 
+                        (escala, escala), 
+                        127.5
+                    )
+                    self.net.setInput(blob)
+                    detections = self.net.forward()
                     
-                    # --- AJUSTE CRÍTICO: BAJAMOS LA CONFIANZA A 0.2 (20%) ---
-                    # Esto permite detectar animales en poses difíciles (de lado, lejos, etc.)
-                    if confidence > 0.2:  
-                        idx = int(detections[0, 0, i, 1])
-                        label = self.CLASSES[idx]
-                        animales = ["pajaro", "gato", "vaca", "perro", "caballo", "oveja"]
+                    for i in range(detections.shape[2]):
+                        confidence = detections[0, 0, i, 2]
                         
-                        if label in animales:
-                            detected_types.append("ANIMAL")
-                            box = detections[0, 0, i, 3:7] * np.array([w_img, h_img, w_img, h_img])
-                            (startX, startY, endX, endY) = box.astype("int")
+                        # UMBRAL AJUSTADO: 30% para balance entre detección y precisión
+                        if confidence > 0.30:
+                            idx = int(detections[0, 0, i, 1])
                             
-                            cv2.rectangle(image, (startX, startY), (endX, endY), (255, 0, 255), 2)
-                            txt = f"ANIMAL ({label.upper()})"
-                            (w, h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1)
-                            cv2.rectangle(image, (startX, startY - 25), (startX + w + 10, startY), (255, 0, 255), cv2.FILLED)
-                            cv2.putText(image, txt, (startX + 5, startY - 6), cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
-            except:
+                            if 0 <= idx < len(self.CLASSES):
+                                label = self.CLASSES[idx]
+                                
+                                # Solo animales
+                                animales = ["bird", "cat", "cow", "dog", "horse", "sheep"]
+                                
+                                if label in animales:
+                                    box = detections[0, 0, i, 3:7] * np.array([w_img, h_img, w_img, h_img])
+                                    (startX, startY, endX, endY) = box.astype("int")
+                                    
+                                    # Validar coordenadas
+                                    startX = max(0, startX)
+                                    startY = max(0, startY)
+                                    endX = min(w_img, endX)
+                                    endY = min(h_img, endY)
+                                    
+                                    #VALIDAR TAMAÑO MÍNIMO (evitar detecciones muy pequeñas)
+                                    ancho = endX - startX
+                                    alto = endY - startY
+                                    area = ancho * alto
+                                    area_img = w_img * h_img
+                                    porcentaje_area = (area / area_img) * 100
+                                    
+                                    # Descartar si es menor al 1% del área total (probablemente error)
+                                    if porcentaje_area < 1.0:
+                                        continue
+                                    
+                                    # Evitar duplicados y superposiciones
+                                    es_duplicado = False
+                                    for det in detecciones_totales:
+                                        # Calcular IoU (Intersection over Union)
+                                        x1 = max(det['startX'], startX)
+                                        y1 = max(det['startY'], startY)
+                                        x2 = min(det['endX'], endX)
+                                        y2 = min(det['endY'], endY)
+                                        
+                                        interseccion = max(0, x2 - x1) * max(0, y2 - y1)
+                                        area_det = (det['endX'] - det['startX']) * (det['endY'] - det['startY'])
+                                        union = area + area_det - interseccion
+                                        
+                                        iou = interseccion / union if union > 0 else 0
+                                        
+                                        # Si hay más de 30% de superposición, es duplicado
+                                        if iou > 0.3:
+                                            # Mantener el de mayor confianza
+                                            if confidence > det['confidence']:
+                                                detecciones_totales.remove(det)
+                                            else:
+                                                es_duplicado = True
+                                            break
+                                    
+                                    if not es_duplicado:
+                                        detecciones_totales.append({
+                                            'startX': startX,
+                                            'startY': startY,
+                                            'endX': endX,
+                                            'endY': endY,
+                                            'label': label,
+                                            'confidence': confidence,
+                                            'area': porcentaje_area
+                                        })
+                
+                # Dibujar todas las detecciones
+                if detecciones_totales:
+                    detected_types.append("ANIMAL")
+                    
+                    for det in detecciones_totales:
+                        cv2.rectangle(image, (det['startX'], det['startY']), 
+                                    (det['endX'], det['endY']), (255, 0, 255), 2)
+                        
+                        # Solo mostrar "ANIMAL"
+                        txt = "ANIMAL"
+                        (w, h), _ = cv2.getTextSize(txt, cv2.FONT_HERSHEY_DUPLEX, 0.6, 1)
+                        cv2.rectangle(image, (det['startX'], det['startY'] - 25), 
+                                    (det['startX'] + w + 10, det['startY']), (255, 0, 255), cv2.FILLED)
+                        cv2.putText(image, txt, (det['startX'] + 5, det['startY'] - 6), 
+                                  cv2.FONT_HERSHEY_DUPLEX, 0.6, (255, 255, 255), 1)
+                        
+                        print(f"✅ Detectado: {det['label']} con confianza {det['confidence']*100:.1f}% (área: {det['area']:.1f}%)")
+                        
+            except Exception as e:
+                print(f"Error en detección de animales: {e}")
                 self.model_failed = True
 
         return image, detected_types
@@ -227,7 +311,9 @@ class FaceRecognitionApp(tk.Tk):
             if process_this_frame:
                 display_frame, detected = self.process_frame_for_objects(display_frame)
                 
-                if "PERSONA" in detected:
+                if "PERSONA" in detected and "ANIMAL" in detected:
+                    self.update_status("PERSONA Y ANIMAL DETECTADOS", COLOR_SUCCESS)
+                elif "PERSONA" in detected:
                     self.update_status("PERSONA DETECTADA", COLOR_SUCCESS)
                 elif "ANIMAL" in detected:
                     self.update_status("ANIMAL DETECTADO", COLOR_ANIMAL)
@@ -242,7 +328,8 @@ class FaceRecognitionApp(tk.Tk):
                 if hasattr(self, 'video_label') and self.view_mode == 'live':
                     self.video_label.configure(image=img_tk)
                     self.video_label.image = img_tk
-            except: pass
+            except: 
+                pass
             
             time.sleep(0.015)
 
@@ -266,9 +353,10 @@ class FaceRecognitionApp(tk.Tk):
                 self.reset_to_camera()
                 return
             
-            if image.shape[2] == 4:
+            if len(image.shape) == 3 and image.shape[2] == 4:
                 image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
 
+            print("\n🔍 ANALIZANDO IMAGEN...")
             processed_image, detected = self.process_frame_for_objects(image.copy())
 
             # Ajuste de tamaño (Fit en 640x480)
@@ -291,19 +379,33 @@ class FaceRecognitionApp(tk.Tk):
             self.video_label.image = img_tk
 
             self.btn_action.config(text="🎥 VOLVER A CÁMARA", cursor="hand2")
-            self.update_status("Imagen analizada.", COLOR_TEXT_BODY)
+            
+            # Mensaje según lo detectado
+            if "ANIMAL" in detected and "PERSONA" in detected:
+                self.update_status("PERSONA Y ANIMAL DETECTADOS", COLOR_SUCCESS)
+            elif "ANIMAL" in detected:
+                self.update_status("ANIMAL DETECTADO", COLOR_ANIMAL)
+            elif "PERSONA" in detected:
+                self.update_status("PERSONA DETECTADA", COLOR_SUCCESS)
+            else:
+                self.update_status("No se detectaron personas ni animales", COLOR_WARNING)
 
         except Exception as e:
             print(f"Error: {e}")
+            import traceback
+            traceback.print_exc()
             self.reset_to_camera()
 
     def update_status(self, text, color):
         try:
             self.after(0, lambda: self.status_label.config(text=text, foreground=color))
-        except: pass
+        except: 
+            pass
 
     def on_closing(self):
         self.running = False
+        if self.cap and self.cap.isOpened():
+            self.cap.release()
         self.destroy()
 
 if __name__ == "__main__":
