@@ -32,12 +32,17 @@ class FaceRecognitionApp(tk.Tk):
         
         self.title("Sistema de Detección Biométrica")
         
+        # --- AJUSTE DE TAMAÑO Y CENTRADO ---
         window_width = 800
-        window_height = 750 
+        window_height = 620  # Reducido para que se centre mejor
+        
         screen_width = self.winfo_screenwidth()
         screen_height = self.winfo_screenheight()
+        
+        # Cálculo matemático para el centro exacto
         x_cordinate = int((screen_width/2) - (window_width/2))
         y_cordinate = int((screen_height/2) - (window_height/2))
+        
         self.geometry(f"{window_width}x{window_height}+{x_cordinate}+{y_cordinate}")
         
         self.configure(bg=COLOR_BG_MAIN)
@@ -51,8 +56,8 @@ class FaceRecognitionApp(tk.Tk):
         # --- CARGAR MODELOS ---
         BASE_DIR = os.path.dirname(os.path.abspath(__file__))
         
-        # Rutas exactas
-        self.path_proto = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.prototxt.txt")
+        # Nombres de archivo corregidos (sin .txt extra)
+        self.path_proto = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.prototxt")
         self.path_model = os.path.join(BASE_DIR, "model", "MobileNetSSD_deploy.caffemodel")
         
         self.net = None
@@ -79,25 +84,18 @@ class FaceRecognitionApp(tk.Tk):
 
     def load_mobilenet(self):
         print(f"\n--- DIAGNÓSTICO DE MODELO ---")
-        print(f"Buscando archivo 1 en: {self.path_proto}")
-        print(f"Buscando archivo 2 en: {self.path_model}")
-
         try:
             if os.path.exists(self.path_proto) and os.path.exists(self.path_model):
-                # Validar tamaño
                 size_proto = os.path.getsize(self.path_proto)
                 size_model = os.path.getsize(self.path_model)
                 
-                print(f"Tamaño Prototxt: {size_proto} bytes")
-                print(f"Tamaño Caffemodel: {size_model} bytes")
-
                 if size_proto > 0 and size_model > 0:
                     self.net = cv2.dnn.readNetFromCaffe(self.path_proto, self.path_model)
                     print(">>> ÉXITO: Modelo MobileNet cargado correctamente.\n")
                 else:
-                    print(">>> ERROR: Archivos encontrados pero están VACÍOS (0kb).\n")
+                    print(">>> ERROR: Archivos VACÍOS (0kb).\n")
             else:
-                print(">>> ERROR: No se encuentran los archivos en la carpeta 'model'. Revisa los nombres.\n")
+                print(">>> ERROR: Archivos no encontrados en carpeta 'model'.\n")
         except Exception as e:
             print(f">>> EXCEPCIÓN: {e}\n")
             self.net = None
@@ -115,7 +113,7 @@ class FaceRecognitionApp(tk.Tk):
         self.style.map("TButton", background=[("active", COLOR_ACCENT_HOVER)])
 
     def create_widgets(self):
-        header_frame = ttk.Frame(self, style="Header.TFrame", height=60)
+        header_frame = ttk.Frame(self, style="Header.TFrame", height=50)
         header_frame.pack(fill=tk.X, side=tk.TOP)
         header_frame.pack_propagate(False)
         ttk.Label(header_frame, text="DETECCIÓN INTELIGENTE", style="Header.TLabel").pack(side=tk.LEFT, padx=20)
@@ -133,14 +131,14 @@ class FaceRecognitionApp(tk.Tk):
         self.video_label = tk.Label(self.camera_frame, bg="black")
         self.video_label.place(x=0, y=0, width=640, height=480)
         
-        controls_card = ttk.Frame(main_content, style="Card.TFrame", padding=15)
+        controls_card = ttk.Frame(main_content, style="Card.TFrame", padding=10)
         controls_card.pack(fill=tk.X)
         
         self.btn_action = ttk.Button(controls_card, text="📂 CARGAR IMAGEN PARA ANALIZAR", cursor="hand2", command=self.toggle_mode)
-        self.btn_action.pack(fill=tk.X, ipady=8)
+        self.btn_action.pack(fill=tk.X, ipady=6)
         
         self.status_label = ttk.Label(main_content, text="Iniciando cámara...", style="Status.TLabel", anchor="center", foreground="#7F8C8D")
-        self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+        self.status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(5, 0))
 
     def toggle_mode(self):
         if self.view_mode == 'live':
@@ -187,7 +185,10 @@ class FaceRecognitionApp(tk.Tk):
 
                 for i in range(detections.shape[2]):
                     confidence = detections[0, 0, i, 2]
-                    if confidence > 0.5:
+                    
+                    # --- AJUSTE CRÍTICO: BAJAMOS LA CONFIANZA A 0.2 (20%) ---
+                    # Esto permite detectar animales en poses difíciles (de lado, lejos, etc.)
+                    if confidence > 0.2:  
                         idx = int(detections[0, 0, i, 1])
                         label = self.CLASSES[idx]
                         animales = ["pajaro", "gato", "vaca", "perro", "caballo", "oveja"]
@@ -226,7 +227,6 @@ class FaceRecognitionApp(tk.Tk):
             if process_this_frame:
                 display_frame, detected = self.process_frame_for_objects(display_frame)
                 
-                # --- SOLO ACTUALIZAR TEXTO EN MODO CÁMARA ---
                 if "PERSONA" in detected:
                     self.update_status("PERSONA DETECTADA", COLOR_SUCCESS)
                 elif "ANIMAL" in detected:
@@ -269,10 +269,9 @@ class FaceRecognitionApp(tk.Tk):
             if image.shape[2] == 4:
                 image = cv2.cvtColor(image, cv2.COLOR_BGRA2BGR)
 
-            # Procesamos la imagen (dibuja los recuadros)
             processed_image, detected = self.process_frame_for_objects(image.copy())
 
-            # Ajuste de tamaño
+            # Ajuste de tamaño (Fit en 640x480)
             h, w = processed_image.shape[:2]
             ratio = min(640/w, 480/h)
             new_w = int(w * ratio)
@@ -292,9 +291,6 @@ class FaceRecognitionApp(tk.Tk):
             self.video_label.image = img_tk
 
             self.btn_action.config(text="🎥 VOLVER A CÁMARA", cursor="hand2")
-            
-            # --- AQUÍ CAMBIÉ EL MENSAJE ---
-            # Ya no muestra "DETECTADO: ...", solo un mensaje fijo.
             self.update_status("Imagen analizada.", COLOR_TEXT_BODY)
 
         except Exception as e:
